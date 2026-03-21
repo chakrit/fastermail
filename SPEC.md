@@ -3,8 +3,12 @@
 ## Overview
 
 FasterMail is an MCP (Model Context Protocol) server written in Rust that exposes FastMail's
-full JMAP API to AI assistants. It communicates over stdio using JSON-RPC 2.0 and covers
-email, contacts, and calendars.
+APIs to AI assistants. It communicates over stdio using JSON-RPC 2.0.
+
+**Phase 1 (JMAP):** Email, sending, vacation response, masked email — all available via JMAP today.
+**Phase 2 (CardDAV/CalDAV):** Contacts and calendars — FastMail does not yet expose these via
+JMAP (only CardDAV/CalDAV). When FastMail enables JMAP for contacts/calendars, Phase 2 tools
+can migrate to JMAP.
 
 ## Design Decisions
 
@@ -137,9 +141,12 @@ Bearer token in the `Authorization` header for all requests. The token format is
 | `urn:ietf:params:jmap:core`                 | Core       |
 | `urn:ietf:params:jmap:mail`                 | Email      |
 | `urn:ietf:params:jmap:submission`           | Sending    |
-| `urn:ietf:params:jmap:contacts`             | Contacts   |
-| `urn:ietf:params:jmap:calendars`            | Calendars  |
+| `urn:ietf:params:jmap:vacationresponse`     | Vacation Response |
 | `https://www.fastmail.com/dev/maskedemail`  | Masked Email (FastMail-specific) |
+
+**Not yet available via JMAP** (use CardDAV/CalDAV):
+- `urn:ietf:params:jmap:contacts` — Contacts
+- `urn:ietf:params:jmap:calendars` — Calendars
 
 ---
 
@@ -276,7 +283,32 @@ Create, rename, or delete mailboxes.
 
 JMAP method: `Mailbox/set`
 
-### 3.2 Contact Tools
+### 3.2 Vacation Response Tools
+
+#### `get_vacation_response`
+
+Get the current vacation/auto-reply settings.
+
+JMAP method: `VacationResponse/get`
+
+Returns: `isEnabled`, `fromDate`, `toDate`, `subject`, `textBody`, `htmlBody`.
+
+#### `set_vacation_response`
+
+Enable, disable, or update the vacation auto-reply.
+
+| Param       | Type    | Required | Description                        |
+|-------------|---------|----------|------------------------------------|
+| `isEnabled` | boolean | yes      | Enable or disable auto-reply       |
+| `fromDate`  | string  | no       | Start date (ISO 8601, UTC)         |
+| `toDate`    | string  | no       | End date (ISO 8601, UTC)           |
+| `subject`   | string  | no       | Auto-reply subject                 |
+| `textBody`  | string  | no       | Plain text auto-reply body         |
+| `htmlBody`  | string  | no       | HTML auto-reply body               |
+
+JMAP method: `VacationResponse/set`
+
+### 3.3 Contact Tools (Phase 2 — CardDAV)
 
 #### `list_address_books`
 
@@ -348,7 +380,7 @@ Delete a contact.
 
 JMAP method: `ContactCard/set` (destroy)
 
-### 3.3 Calendar Tools
+### 3.4 Calendar Tools (Phase 2 — CalDAV)
 
 #### `list_calendars`
 
@@ -427,7 +459,7 @@ Delete a calendar event.
 
 JMAP method: `CalendarEvent/set` (destroy) with `sendSchedulingMessages`
 
-### 3.4 Identity Tools
+### 3.5 Identity Tools
 
 #### `list_identities`
 
@@ -437,7 +469,7 @@ JMAP method: `Identity/get`
 
 Returns: Array with `id`, `name`, `email`, `replyTo`.
 
-### 3.5 Masked Email Tools
+### 3.6 Masked Email Tools
 
 FastMail-specific extension (`https://www.fastmail.com/dev/maskedemail`).
 
@@ -504,9 +536,11 @@ fastermail/
 │       ├── mod.rs           # Action trait + registry
 │       ├── email.rs         # Email action structs (GetEmails, SearchEmails, SendEmail, etc.)
 │       ├── mailbox.rs       # Mailbox action structs
-│       ├── contact.rs       # Contact action structs
-│       ├── calendar.rs      # Calendar action structs
-│       └── identity.rs      # Identity action structs
+│       ├── vacation.rs      # Vacation response action structs
+│       ├── masked_email.rs  # Masked email action structs
+│       ├── identity.rs      # Identity action structs
+│       ├── contact.rs       # Contact action structs (Phase 2 — CardDAV)
+│       └── calendar.rs      # Calendar action structs (Phase 2 — CalDAV)
 ```
 
 ### 4.1 Key Types
