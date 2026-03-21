@@ -1,15 +1,13 @@
 use std::fs;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Records request/response pairs to disk as JSON files.
 ///
 /// Enabled by setting `FASTERMAIL_RECORD_DIR` to a directory path.
-/// Each interaction is saved as a numbered JSON file for later use as test data.
+/// Each interaction is saved as a timestamped JSON file for later use as test data.
 pub struct Recorder {
     dir: PathBuf,
-    counter: AtomicU64,
 }
 
 impl Recorder {
@@ -27,10 +25,7 @@ impl Recorder {
         }
 
         eprintln!("[recorder] recording to {}", dir.display());
-        Some(Self {
-            dir,
-            counter: AtomicU64::new(0),
-        })
+        Some(Self { dir })
     }
 
     /// Record a JMAP HTTP exchange.
@@ -80,9 +75,9 @@ impl Recorder {
     }
 
     fn write_file(&self, prefix: &str, method: &str, entry: &serde_json::Value) {
-        let n = self.counter.fetch_add(1, Ordering::Relaxed);
+        let ts = timestamp_filename();
         let safe_method = method.replace('/', "_");
-        let filename = format!("{n:04}_{prefix}_{safe_method}.json");
+        let filename = format!("{ts}_{prefix}_{safe_method}.json");
         let path = self.dir.join(filename);
 
         let json = match serde_json::to_string_pretty(entry) {
@@ -104,4 +99,11 @@ fn timestamp() -> String {
         .duration_since(UNIX_EPOCH)
         .map(|d| format!("{}.{:03}", d.as_secs(), d.subsec_millis()))
         .unwrap_or_else(|_| "0".to_string())
+}
+
+fn timestamp_filename() -> String {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| format!("{}_{:06}", d.as_secs(), d.subsec_micros()))
+        .unwrap_or_else(|_| "0_000000".to_string())
 }
