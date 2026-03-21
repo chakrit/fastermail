@@ -25,20 +25,29 @@ pub fn run(ctx: Context) -> crate::error::Result<()> {
                     PARSE_ERROR,
                     format!("parse error: {e}"),
                 );
-                write_response(&mut stdout, &resp)?;
+                write_response(&mut stdout, &resp, &ctx, "parse_error")?;
                 continue;
             }
         };
 
+        let method = request.method.clone();
+
         if request.id.is_none() {
-            handle_notification(&request.method);
+            if let Some(rec) = &ctx.recorder {
+                rec.record_mcp_request(&method, line);
+            }
+            handle_notification(&method);
             continue;
         }
 
-        let id = request.id.clone().unwrap_or(serde_json::Value::Null);
-        let response = handle_request(&request.method, request.params, id.clone(), &ctx);
+        if let Some(rec) = &ctx.recorder {
+            rec.record_mcp_request(&method, line);
+        }
 
-        write_response(&mut stdout, &response)?;
+        let id = request.id.clone().unwrap_or(serde_json::Value::Null);
+        let response = handle_request(&method, request.params, id, &ctx);
+
+        write_response(&mut stdout, &response, &ctx, &method)?;
     }
 
     Ok(())
@@ -79,10 +88,19 @@ fn handle_notification(method: &str) {
     }
 }
 
-fn write_response(stdout: &mut io::Stdout, response: &JsonRpcResponse) -> io::Result<()> {
+fn write_response(
+    stdout: &mut io::Stdout,
+    response: &JsonRpcResponse,
+    ctx: &Context,
+    method: &str,
+) -> io::Result<()> {
     let json = serde_json::to_string(response).map_err(|e| {
         io::Error::new(io::ErrorKind::Other, format!("serialize error: {e}"))
     })?;
+
+    if let Some(rec) = &ctx.recorder {
+        rec.record_mcp_response(method, &json);
+    }
 
     writeln!(stdout, "{json}")?;
     stdout.flush()

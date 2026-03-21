@@ -7,11 +7,13 @@ pub mod vacation;
 use crate::error::Result;
 use crate::jmap::client::JmapClient;
 use crate::mcp::types::Tool;
+use crate::recorder::Recorder;
 
 /// Context passed to all actions.
 pub struct Context {
     pub jmap: JmapClient,
     pub account_id: String,
+    pub recorder: Option<Recorder>,
 }
 
 /// Every MCP tool implements this trait.

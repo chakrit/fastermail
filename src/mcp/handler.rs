@@ -38,14 +38,28 @@ pub fn handle_tools_call(params: serde_json::Value, ctx: &Context) -> serde_json
 
     let result = dispatch_tool(&call.name, args, ctx);
 
-    match result {
+    let response = match &result {
         Ok(data) => {
-            let text = serde_json::to_string_pretty(&data).unwrap_or_default();
+            let text = serde_json::to_string_pretty(data).unwrap_or_default();
             serde_json::to_value(ToolCallResult::text(text)).unwrap_or(serde_json::json!({}))
         }
         Err(e) => serde_json::to_value(ToolCallResult::error(e.to_string()))
             .unwrap_or(serde_json::json!({})),
+    };
+
+    if let Some(rec) = &ctx.recorder {
+        let request = serde_json::json!({
+            "tool": call.name,
+            "arguments": call.arguments,
+        });
+        let result_val = match &result {
+            Ok(data) => data.clone(),
+            Err(e) => serde_json::json!({ "error": e.to_string() }),
+        };
+        rec.record_jmap(&call.name, &request, &result_val);
     }
+
+    response
 }
 
 fn dispatch_tool(

@@ -2,6 +2,7 @@ mod actions;
 mod error;
 mod jmap;
 mod mcp;
+mod recorder;
 
 use std::process;
 
@@ -32,9 +33,12 @@ fn main() {
 
     eprintln!("[fastermail] connected as {} (account: {})", session.username, account_id);
 
+    let recorder = recorder::Recorder::from_env();
+
     let ctx = actions::Context {
         jmap: client,
         account_id,
+        recorder,
     };
 
     if let Err(e) = mcp::server::run(ctx) {
