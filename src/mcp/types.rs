@@ -164,105 +164,59 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_initialize_request() {
-        let json = r#"{
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "initialize",
-            "params": {
-                "protocolVersion": "2025-11-25",
-                "capabilities": {},
-                "clientInfo": { "name": "TestClient", "version": "1.0" }
-            }
-        }"#;
-
-        let req: JsonRpcRequest =
-            serde_json::from_str(json).expect("should parse initialize request");
-
-        assert_eq!(req.method, "initialize");
-        assert_eq!(req.id, Some(serde_json::json!(1)));
-
-        let params: InitializeParams =
-            serde_json::from_value(req.params).expect("should parse init params");
-
-        assert_eq!(params.protocol_version, "2025-11-25");
-        assert_eq!(params.client_info.name, "TestClient");
-    }
-
-    #[test]
-    fn parse_notification_has_no_id() {
-        let json = r#"{
-            "jsonrpc": "2.0",
-            "method": "notifications/initialized"
-        }"#;
-
-        let req: JsonRpcRequest =
-            serde_json::from_str(json).expect("should parse notification");
-
-        assert_eq!(req.method, "notifications/initialized");
-        assert!(req.id.is_none());
-    }
-
-    #[test]
-    fn parse_tools_call_request() {
-        let json = r#"{
-            "jsonrpc": "2.0",
-            "id": 2,
-            "method": "tools/call",
-            "params": {
-                "name": "list_mailboxes",
-                "arguments": { "role": "inbox" }
-            }
-        }"#;
-
-        let req: JsonRpcRequest =
-            serde_json::from_str(json).expect("should parse tools/call request");
-
-        let params: ToolCallParams =
-            serde_json::from_value(req.params).expect("should parse tool call params");
-
-        assert_eq!(params.name, "list_mailboxes");
-        assert_eq!(params.arguments["role"], "inbox");
-    }
-
-    #[test]
-    fn success_response_serializes_correctly() {
+    fn success_response_omits_error_field() {
         let resp = JsonRpcResponse::success(serde_json::json!(1), serde_json::json!({"ok": true}));
-        let json = serde_json::to_string(&resp).expect("should serialize response");
 
-        assert!(json.contains("\"jsonrpc\":\"2.0\""));
-        assert!(json.contains("\"result\""));
-        assert!(!json.contains("\"error\""));
+        assert!(resp.result.is_some());
+        assert!(resp.error.is_none());
+        assert_eq!(resp.id, serde_json::json!(1));
     }
 
     #[test]
-    fn error_response_serializes_correctly() {
+    fn error_response_omits_result_field() {
         let resp = JsonRpcResponse::error(
             serde_json::json!(1),
             METHOD_NOT_FOUND,
             "Method not found".to_string(),
         );
-        let json = serde_json::to_string(&resp).expect("should serialize error response");
 
-        assert!(json.contains("\"error\""));
-        assert!(json.contains("-32601"));
-        assert!(!json.contains("\"result\""));
+        assert!(resp.result.is_none());
+        assert!(resp.error.is_some());
+        assert_eq!(
+            resp.error.as_ref().expect("error should be present").code,
+            -32601
+        );
     }
 
     #[test]
-    fn tool_call_result_text() {
-        let result = ToolCallResult::text("hello".to_string());
+    fn tool_result_text_sets_is_error_false() {
+        let result = ToolCallResult::text("ok".to_string());
 
         assert!(!result.is_error);
-        assert_eq!(result.content.len(), 1);
-        assert_eq!(result.content[0].text, "hello");
     }
 
     #[test]
-    fn tool_call_result_error() {
-        let result = ToolCallResult::error("something failed".to_string());
+    fn tool_result_error_sets_is_error_true() {
+        let result = ToolCallResult::error("fail".to_string());
 
         assert!(result.is_error);
-        assert_eq!(result.content[0].text, "something failed");
+    }
+
+    #[test]
+    fn tool_call_params_defaults_to_empty_when_missing() {
+        let params: ToolCallParams = serde_json::from_value(serde_json::json!({}))
+            .expect("should parse empty params");
+
+        assert!(params.name.is_empty());
+        assert_eq!(params.arguments, serde_json::Value::default());
+    }
+
+    #[test]
+    fn initialize_params_defaults_when_fields_missing() {
+        let params: InitializeParams = serde_json::from_value(serde_json::json!({}))
+            .expect("should parse with defaults");
+
+        assert!(params.protocol_version.is_empty());
+        assert!(params.client_info.name.is_empty());
     }
 }

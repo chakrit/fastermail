@@ -36,15 +36,22 @@ pub fn handle_tools_call(params: serde_json::Value, ctx: &Context) -> serde_json
     let call: ToolCallParams = serde_json::from_value(params).unwrap_or_default();
     let args = &call.arguments;
 
+    log_debug!("handler", "tool call: {}", call.name);
+    log_trace!("handler", "tool args: {}", call.arguments);
+
     let result = dispatch_tool(&call.name, args, ctx);
 
     let response = match &result {
         Ok(data) => {
+            log_debug!("handler", "tool {} succeeded", call.name);
             let text = serde_json::to_string_pretty(data).unwrap_or_default();
             serde_json::to_value(ToolCallResult::text(text)).unwrap_or(serde_json::json!({}))
         }
-        Err(e) => serde_json::to_value(ToolCallResult::error(e.to_string()))
-            .unwrap_or(serde_json::json!({})),
+        Err(e) => {
+            log_warn!("handler", "tool {} failed: {e}", call.name);
+            serde_json::to_value(ToolCallResult::error(e.to_string()))
+                .unwrap_or(serde_json::json!({}))
+        }
     };
 
     if let Some(rec) = &ctx.recorder {
@@ -278,5 +285,124 @@ mod tests {
         let result = str_array_param(&args, "to");
         assert_eq!(result, vec!["a@b.com", "c@d.com"]);
         assert!(str_array_param(&args, "missing").is_empty());
+    }
+
+    #[test]
+    fn u32_param_defaults_to_zero() {
+        let args = serde_json::json!({ "limit": 50 });
+        assert_eq!(u32_param(&args, "limit"), 50);
+        assert_eq!(u32_param(&args, "missing"), 0);
+    }
+
+    #[test]
+    fn tools_list_every_tool_has_input_schema() {
+        let result = handle_tools_list();
+        let tools = result["tools"].as_array().expect("tools should be array");
+
+        for tool in tools {
+            let name = tool["name"].as_str().expect("tool should have name");
+            assert!(
+                tool.get("inputSchema").is_some(),
+                "tool {name} missing inputSchema"
+            );
+            assert_eq!(
+                tool["inputSchema"]["type"], "object",
+                "tool {name} inputSchema should be object type"
+            );
+        }
+    }
+
+    #[test]
+    fn dispatch_unknown_tool_returns_error() {
+        let err = dispatch_tool(
+            "nonexistent_tool",
+            &serde_json::json!({}),
+            &test_ctx(),
+        );
+
+        assert!(err.is_err());
+        let msg = err.expect_err("should be error").to_string();
+        assert!(
+            msg.contains("nonexistent_tool"),
+            "error should name the unknown tool: {msg}"
+        );
+    }
+
+    #[test]
+    fn dispatch_flag_email_rejects_invalid_flag() {
+        let err = dispatch_tool(
+            "flag_email",
+            &serde_json::json!({
+                "emailIds": ["e1"],
+                "flag": "invalid_flag",
+                "value": true
+            }),
+            &test_ctx(),
+        );
+
+        assert!(err.is_err());
+        let msg = err.expect_err("should be error").to_string();
+        assert!(msg.contains("invalid flag"), "error should mention invalid flag: {msg}");
+    }
+
+    #[test]
+    fn dispatch_search_emails_requires_filter() {
+        let err = dispatch_tool(
+            "search_emails",
+            &serde_json::json!({}),
+            &test_ctx(),
+        );
+
+        assert!(err.is_err());
+        let msg = err.expect_err("should be error").to_string();
+        assert!(
+            msg.contains("filter"),
+            "error should mention missing filter: {msg}"
+        );
+    }
+
+    #[test]
+    fn dispatch_get_email_body_requires_email_id() {
+        let err = dispatch_tool(
+            "get_email_body",
+            &serde_json::json!({}),
+            &test_ctx(),
+        );
+
+        assert!(err.is_err());
+        let msg = err.expect_err("should be error").to_string();
+        assert!(
+            msg.contains("emailId"),
+            "error should mention missing emailId: {msg}"
+        );
+    }
+
+    #[test]
+    fn dispatch_get_email_body_rejects_invalid_format() {
+        let err = dispatch_tool(
+            "get_email_body",
+            &serde_json::json!({ "emailId": "e1", "format": "xml" }),
+            &test_ctx(),
+        );
+
+        assert!(err.is_err());
+        let msg = err.expect_err("should be error").to_string();
+        assert!(
+            msg.contains("format"),
+            "error should mention invalid format: {msg}"
+        );
+    }
+
+    /// Create a test context with a JmapClient pointing at a non-existent server.
+    /// Only usable for tests that validate parameters before making HTTP calls.
+    fn test_ctx() -> Context {
+        Context {
+            jmap: crate::jmap::client::JmapClient::new(
+                "http://localhost:0".to_string(),
+                "test-token".to_string(),
+            ),
+            account_id: "test-account".to_string(),
+            recorder: None,
+        }
     }
 }

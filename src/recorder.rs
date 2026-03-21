@@ -20,11 +20,11 @@ impl Recorder {
 
         let dir = PathBuf::from(dir);
         if let Err(e) = fs::create_dir_all(&dir) {
-            eprintln!("[recorder] failed to create directory {}: {e}", dir.display());
+            log_warn!("recorder", "failed to create directory {}: {e}", dir.display());
             return None;
         }
 
-        eprintln!("[recorder] recording to {}", dir.display());
+        log_info!("recorder", "recording to {}", dir.display());
         Some(Self { dir })
     }
 
@@ -83,13 +83,13 @@ impl Recorder {
         let json = match serde_json::to_string_pretty(entry) {
             Ok(j) => j,
             Err(e) => {
-                eprintln!("[recorder] serialize error: {e}");
+                log_warn!("recorder", "serialize error: {e}");
                 return;
             }
         };
 
         if let Err(e) = fs::write(&path, json) {
-            eprintln!("[recorder] write error {}: {e}", path.display());
+            log_warn!("recorder", "write error {}: {e}", path.display());
         }
     }
 }

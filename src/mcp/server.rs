@@ -17,9 +17,12 @@ pub fn run(ctx: Context) -> crate::error::Result<()> {
             continue;
         }
 
+        log_trace!("mcp", "recv: {line}");
+
         let request: JsonRpcRequest = match serde_json::from_str(line) {
             Ok(req) => req,
             Err(e) => {
+                log_warn!("mcp", "parse error: {e}");
                 let resp = JsonRpcResponse::error(
                     serde_json::Value::Null,
                     PARSE_ERROR,
@@ -36,6 +39,7 @@ pub fn run(ctx: Context) -> crate::error::Result<()> {
             if let Some(rec) = &ctx.recorder {
                 rec.record_mcp_request(&method, line);
             }
+            log_debug!("mcp", "notification: {method}");
             handle_notification(&method);
             continue;
         }
@@ -44,12 +48,15 @@ pub fn run(ctx: Context) -> crate::error::Result<()> {
             rec.record_mcp_request(&method, line);
         }
 
+        log_debug!("mcp", "request: {method}");
+
         let id = request.id.clone().unwrap_or(serde_json::Value::Null);
         let response = handle_request(&method, request.params, id, &ctx);
 
         write_response(&mut stdout, &response, &ctx, &method)?;
     }
 
+    log_info!("mcp", "stdin closed, shutting down");
     Ok(())
 }
 
@@ -73,17 +80,20 @@ fn handle_request(
             let result = handler::handle_tools_call(params, ctx);
             JsonRpcResponse::success(id, result)
         }
-        _ => JsonRpcResponse::error(id, METHOD_NOT_FOUND, format!("method not found: {method}")),
+        _ => {
+            log_warn!("mcp", "unknown method: {method}");
+            JsonRpcResponse::error(id, METHOD_NOT_FOUND, format!("method not found: {method}"))
+        }
     }
 }
 
 fn handle_notification(method: &str) {
     match method {
         "notifications/initialized" => {
-            eprintln!("[fastermail] client initialized");
+            log_info!("mcp", "client initialized");
         }
         _ => {
-            eprintln!("[fastermail] unknown notification: {method}");
+            log_warn!("mcp", "unknown notification: {method}");
         }
     }
 }
@@ -97,6 +107,8 @@ fn write_response(
     let json = serde_json::to_string(response).map_err(|e| {
         io::Error::new(io::ErrorKind::Other, format!("serialize error: {e}"))
     })?;
+
+    log_trace!("mcp", "send: {json}");
 
     if let Some(rec) = &ctx.recorder {
         rec.record_mcp_response(method, &json);

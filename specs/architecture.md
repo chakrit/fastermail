@@ -11,6 +11,7 @@ fastermail/
 ├── src/
 │   ├── main.rs              # Entry point: read env, init session, run server loop
 │   ├── error.rs             # Single error enum for the crate
+│   ├── recorder.rs          # Request/response recording for test data capture
 │   ├── mcp/
 │   │   ├── mod.rs           # MCP module root
 │   │   ├── types.rs         # JSON-RPC & MCP types (Request, Response, Tool, etc.)
@@ -26,10 +27,12 @@ fastermail/
 │       ├── mailbox.rs       # Mailbox action structs
 │       ├── vacation.rs      # Vacation response action structs
 │       ├── masked_email.rs  # Masked email action structs
-│       ├── identity.rs      # Identity action structs
-│       ├── contact.rs       # Contact action structs (Phase 2 — CardDAV)
-│       └── calendar.rs      # Calendar action structs (Phase 2 — CalDAV)
+│       └── identity.rs      # Identity action structs
 ```
+
+Phase 2 action files (`contact.rs`, `calendar.rs`) will be added when
+FastMail exposes contacts/calendars via JMAP or when CardDAV/CalDAV
+support is implemented.
 
 ## Key Types
 
@@ -38,6 +41,7 @@ fastermail/
 struct Context {
     jmap: JmapClient,
     account_id: String,
+    recorder: Option<Recorder>,
 }
 
 // Action trait — unit-of-work pattern
@@ -48,12 +52,34 @@ trait Action {
 // Single crate-level error enum
 enum Error {
     Io(std::io::Error),
-    Http(/* http client error */),
+    Http(ureq::Error),
+    Json(serde_json::Error),
     Jmap { method: String, message: String },
     InvalidParams(String),
     MissingToken,
 }
 ```
+
+## Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `FASTMAIL_API_TOKEN` | yes | FastMail API token (`fmu1-*`) |
+| `JMAP_SESSION_URL` | no | Override JMAP session URL (for testing) |
+| `FASTERMAIL_RECORD_DIR` | no | Directory to write request/response recordings |
+| `FASTERMAIL_LOG` | no | Log level: `error`, `warn`, `info`, `debug`, `trace` (default: `info`) |
+
+## Record Mode
+
+Set `FASTERMAIL_RECORD_DIR` to a directory path to capture all traffic as JSON files.
+Each interaction is saved as a timestamped file for later use as test data.
+
+Files are named `{epoch}_{micros}_{type}_{method}.json`. Types:
+- `mcp_req` — incoming MCP JSON-RPC message from client
+- `mcp_resp` — outgoing MCP JSON-RPC response to client
+- `jmap` — tool call arguments and JMAP result
+
+Each file contains: `timestamp`, `type`, `method`, and full message/data.
 
 ## Dependencies
 
