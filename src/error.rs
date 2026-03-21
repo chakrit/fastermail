@@ -18,6 +18,7 @@ pub enum Error {
     InvalidParams(String),
 
     #[error("FASTMAIL_API_TOKEN environment variable not set")]
+    #[allow(dead_code)]
     MissingToken,
 }
 

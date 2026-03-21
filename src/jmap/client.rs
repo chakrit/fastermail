@@ -33,6 +33,7 @@ impl JmapClient {
     }
 
     /// Create a client with a known API URL (for testing).
+    #[cfg(test)]
     pub fn new(api_url: String, token: String) -> Self {
         Self { api_url, token }
     }
