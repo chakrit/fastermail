@@ -33,7 +33,24 @@ pub fn handle_tools_list() -> serde_json::Value {
 }
 
 pub fn handle_tools_call(params: serde_json::Value, ctx: &Context) -> serde_json::Value {
-    let call: ToolCallParams = serde_json::from_value(params).unwrap_or_default();
+    let call: ToolCallParams = match serde_json::from_value(params) {
+        Ok(c) => c,
+        Err(e) => {
+            log_warn!("handler", "malformed tools/call params: {e}");
+            return serde_json::to_value(ToolCallResult::error(format!(
+                "malformed tool call params: {e}"
+            )))
+            .unwrap_or_default();
+        }
+    };
+
+    if call.name.is_empty() {
+        return serde_json::to_value(ToolCallResult::error(
+            "tool name is required".to_string(),
+        ))
+        .unwrap_or_default();
+    }
+
     let args = &call.arguments;
 
     log_debug!("handler", "tool call: {}", call.name);
@@ -161,7 +178,7 @@ fn dispatch_tool(
         }
         "set_vacation_response" => {
             let action = vacation::SetVacationResponse {
-                is_enabled: bool_param(args, "isEnabled"),
+                is_enabled: args.get("isEnabled").and_then(|v| v.as_bool()),
                 from_date: str_param(args, "fromDate"),
                 to_date: str_param(args, "toDate"),
                 subject: str_param(args, "subject"),

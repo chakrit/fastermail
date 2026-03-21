@@ -91,6 +91,10 @@ pub struct ManageMailbox {
 
 impl Action for ManageMailbox {
     fn run(&self, ctx: &Context) -> Result<serde_json::Value> {
+        if self.action.is_empty() {
+            return Err(Error::InvalidParams("action is required".to_string()));
+        }
+
         match self.action.as_str() {
             "create" => {
                 if self.name.is_empty() {

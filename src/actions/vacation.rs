@@ -53,7 +53,7 @@ impl Action for GetVacationResponse {
 }
 
 pub struct SetVacationResponse {
-    pub is_enabled: bool,
+    pub is_enabled: Option<bool>,
     pub from_date: String,
     pub to_date: String,
     pub subject: String,
@@ -63,8 +63,12 @@ pub struct SetVacationResponse {
 
 impl Action for SetVacationResponse {
     fn run(&self, ctx: &Context) -> Result<serde_json::Value> {
+        let is_enabled = self.is_enabled.ok_or_else(|| {
+            crate::error::Error::InvalidParams("isEnabled is required".to_string())
+        })?;
+
         let mut update = serde_json::json!({
-            "isEnabled": self.is_enabled
+            "isEnabled": is_enabled
         });
 
         if !self.from_date.is_empty() {

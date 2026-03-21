@@ -438,29 +438,7 @@ impl Action for SendEmail {
         }
 
         if !self.in_reply_to.is_empty() {
-            let original = ctx.jmap.call_one(
-                "urn:ietf:params:jmap:mail",
-                "Email/get",
-                serde_json::json!({
-                    "accountId": ctx.account_id,
-                    "ids": [self.in_reply_to],
-                    "properties": ["messageId", "references"]
-                }),
-            )?;
-
-            if let Some(orig_email) = original.get("list").and_then(|l| l.as_array()).and_then(|a| a.first()) {
-                if let Some(msg_id) = orig_email.get("messageId").and_then(|v| v.as_array()).and_then(|a| a.first()) {
-                    email_obj["header:In-Reply-To:asMessageIds"] = serde_json::json!([msg_id]);
-
-                    let mut refs: Vec<serde_json::Value> = orig_email
-                        .get("references")
-                        .and_then(|v| v.as_array())
-                        .cloned()
-                        .unwrap_or_default();
-                    refs.push(msg_id.clone());
-                    email_obj["header:References:asMessageIds"] = serde_json::json!(refs);
-                }
-            }
+            self.apply_reply_headers(&mut email_obj, ctx)?;
         }
 
         let using = vec![
@@ -531,6 +509,44 @@ impl SendEmail {
                 method: "Identity/get".to_string(),
                 message: "no sending identity found".to_string(),
             })
+    }
+
+    fn apply_reply_headers(
+        &self,
+        email_obj: &mut serde_json::Value,
+        ctx: &Context,
+    ) -> Result<()> {
+        let original = ctx.jmap.call_one(
+            "urn:ietf:params:jmap:mail",
+            "Email/get",
+            serde_json::json!({
+                "accountId": ctx.account_id,
+                "ids": [self.in_reply_to],
+                "properties": ["messageId", "references"]
+            }),
+        )?;
+
+        let orig_email = match original.get("list").and_then(|l| l.as_array()).and_then(|a| a.first()) {
+            Some(e) => e,
+            None => return Ok(()),
+        };
+
+        let msg_id = match orig_email.get("messageId").and_then(|v| v.as_array()).and_then(|a| a.first()) {
+            Some(id) => id,
+            None => return Ok(()),
+        };
+
+        email_obj["header:In-Reply-To:asMessageIds"] = serde_json::json!([msg_id]);
+
+        let mut refs: Vec<serde_json::Value> = orig_email
+            .get("references")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+        refs.push(msg_id.clone());
+        email_obj["header:References:asMessageIds"] = serde_json::json!(refs);
+
+        Ok(())
     }
 }
 

@@ -132,6 +132,10 @@ impl Action for UpdateMaskedEmail {
             return Err(Error::InvalidParams("id is required".to_string()));
         }
 
+        if self.state.is_empty() {
+            return Err(Error::InvalidParams("state is required".to_string()));
+        }
+
         let valid_states = ["enabled", "disabled", "deleted"];
         if !valid_states.contains(&self.state.as_str()) {
             return Err(Error::InvalidParams(
