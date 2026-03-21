@@ -139,6 +139,7 @@ Bearer token in the `Authorization` header for all requests. The token format is
 | `urn:ietf:params:jmap:submission`           | Sending    |
 | `urn:ietf:params:jmap:contacts`             | Contacts   |
 | `urn:ietf:params:jmap:calendars`            | Calendars  |
+| `https://www.fastmail.com/dev/maskedemail`  | Masked Email (FastMail-specific) |
 
 ---
 
@@ -210,7 +211,7 @@ Get full body of a single email.
 | `emailId`| string | yes      | Email ID                              |
 | `format` | string | no       | `text`, `html`, or `both` (default `text`) |
 
-JMAP method: `Email/get` with `bodyProperties`
+JMAP method: `Email/get` with `fetchTextBodyValues`, `fetchHTMLBodyValues`, and/or `bodyProperties`
 
 #### `send_email`
 
@@ -435,6 +436,45 @@ List sending identities (From addresses).
 JMAP method: `Identity/get`
 
 Returns: Array with `id`, `name`, `email`, `replyTo`.
+
+### 3.5 Masked Email Tools
+
+FastMail-specific extension (`https://www.fastmail.com/dev/maskedemail`).
+
+#### `list_masked_emails`
+
+List all masked (disposable) email addresses.
+
+| Param   | Type   | Required | Description                  |
+|---------|--------|----------|------------------------------|
+| `state` | string | no       | Filter: `pending`, `enabled`, `disabled`, `deleted` |
+
+JMAP method: `MaskedEmail/get`
+
+Returns: Array with `id`, `email`, `forDomain`, `description`, `state`, `createdAt`.
+
+#### `create_masked_email`
+
+Create a new masked email address.
+
+| Param         | Type   | Required | Description                         |
+|---------------|--------|----------|-------------------------------------|
+| `forDomain`   | string | no       | Domain this address is for          |
+| `description` | string | no       | Human-readable label                |
+| `emailPrefix` | string | no       | Preferred prefix for the address    |
+
+JMAP method: `MaskedEmail/set`
+
+#### `update_masked_email`
+
+Enable, disable, or delete a masked email address.
+
+| Param   | Type   | Required | Description                              |
+|---------|--------|----------|------------------------------------------|
+| `id`    | string | yes      | Masked email ID                          |
+| `state` | string | yes      | New state: `enabled`, `disabled`, `deleted` |
+
+JMAP method: `MaskedEmail/set`
 
 ---
 
