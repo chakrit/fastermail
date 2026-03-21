@@ -374,6 +374,23 @@ impl Action for SendEmail {
             return Err(Error::InvalidParams("body is required".to_string()));
         }
 
+        let identity = self.resolve_identity(ctx)?;
+        let identity_id = identity
+            .get("id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| Error::Jmap {
+                method: "Identity/get".to_string(),
+                message: "no sending identity found".to_string(),
+            })?;
+        let from_email = identity
+            .get("email")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let from_name = identity
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+
         let to_addrs: Vec<serde_json::Value> = self
             .to
             .iter()
@@ -387,7 +404,7 @@ impl Action for SendEmail {
         });
 
         let mut email_obj = serde_json::json!({
-            "from": [{ "email": "" }],
+            "from": [{ "name": from_name, "email": from_email }],
             "to": to_addrs,
             "subject": self.subject,
             "keywords": { "$draft": true },
@@ -420,6 +437,32 @@ impl Action for SendEmail {
             email_obj["bcc"] = serde_json::json!(bcc_addrs);
         }
 
+        if !self.in_reply_to.is_empty() {
+            let original = ctx.jmap.call_one(
+                "urn:ietf:params:jmap:mail",
+                "Email/get",
+                serde_json::json!({
+                    "accountId": ctx.account_id,
+                    "ids": [self.in_reply_to],
+                    "properties": ["messageId", "references"]
+                }),
+            )?;
+
+            if let Some(orig_email) = original.get("list").and_then(|l| l.as_array()).and_then(|a| a.first()) {
+                if let Some(msg_id) = orig_email.get("messageId").and_then(|v| v.as_array()).and_then(|a| a.first()) {
+                    email_obj["header:In-Reply-To:asMessageIds"] = serde_json::json!([msg_id]);
+
+                    let mut refs: Vec<serde_json::Value> = orig_email
+                        .get("references")
+                        .and_then(|v| v.as_array())
+                        .cloned()
+                        .unwrap_or_default();
+                    refs.push(msg_id.clone());
+                    email_obj["header:References:asMessageIds"] = serde_json::json!(refs);
+                }
+            }
+        }
+
         let using = vec![
             "urn:ietf:params:jmap:core".to_string(),
             "urn:ietf:params:jmap:mail".to_string(),
@@ -436,7 +479,7 @@ impl Action for SendEmail {
             "create": {
                 "submission": {
                     "emailId": "#draft",
-                    "identityId": ""
+                    "identityId": identity_id
                 }
             }
         });
@@ -469,6 +512,25 @@ impl Action for SendEmail {
             "success": true,
             "emailId": email_id
         }))
+    }
+}
+
+impl SendEmail {
+    fn resolve_identity(&self, ctx: &Context) -> Result<serde_json::Value> {
+        let data = ctx.jmap.call_one(
+            "urn:ietf:params:jmap:submission",
+            "Identity/get",
+            serde_json::json!({ "accountId": ctx.account_id }),
+        )?;
+
+        data.get("list")
+            .and_then(|l| l.as_array())
+            .and_then(|arr| arr.first())
+            .cloned()
+            .ok_or_else(|| Error::Jmap {
+                method: "Identity/get".to_string(),
+                message: "no sending identity found".to_string(),
+            })
     }
 }
 

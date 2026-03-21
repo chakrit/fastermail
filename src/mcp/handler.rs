@@ -1,7 +1,9 @@
-use crate::actions::{self, Action, Context};
-use crate::actions::{email, identity, mailbox, masked_email, vacation};
+use crate::actions::{self, email, identity, mailbox, masked_email, vacation, Action, Context};
 use crate::error::Error;
-use crate::mcp::types::*;
+use crate::mcp::types::{
+    InitializeParams, InitializeResult, ServerCapabilities, ServerInfo, ToolCallParams,
+    ToolCallResult, ToolsCapability, ToolsListResult,
+};
 
 pub fn handle_initialize(params: serde_json::Value) -> serde_json::Value {
     let _init: InitializeParams = serde_json::from_value(params).unwrap_or_default();

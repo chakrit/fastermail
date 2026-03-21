@@ -2,7 +2,7 @@ use std::io::{self, BufRead, Write};
 
 use crate::actions::Context;
 use crate::mcp::handler;
-use crate::mcp::types::*;
+use crate::mcp::types::{JsonRpcRequest, JsonRpcResponse, METHOD_NOT_FOUND, PARSE_ERROR};
 
 /// Run the MCP server stdio loop.
 pub fn run(ctx: Context) -> crate::error::Result<()> {
