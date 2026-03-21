@@ -8,8 +8,12 @@ pub struct JmapClient {
 
 impl JmapClient {
     /// Fetch the JMAP session and create a client.
+    /// Uses `JMAP_SESSION_URL` env var if set, otherwise defaults to FastMail.
     pub fn connect(token: &str) -> Result<(Self, Session)> {
-        let mut resp = ureq::get("https://api.fastmail.com/jmap/session")
+        let session_url = std::env::var("JMAP_SESSION_URL")
+            .unwrap_or_else(|_| "https://api.fastmail.com/jmap/session".to_string());
+
+        let mut resp = ureq::get(&session_url)
             .header("Authorization", &format!("Bearer {token}"))
             .call()?;
 
