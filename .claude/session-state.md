@@ -1,6 +1,6 @@
 # FasterMail Session State
 
-Saved: 2026-03-25 (session 11, wrap 1)
+Saved: 2026-03-25 (session 12)
 
 ## Way of Work
 
@@ -66,14 +66,13 @@ Saved: 2026-03-25 (session 11, wrap 1)
    - Sections: Communication Style, Workflow (edit protocol, never-assume), Metrics, Response Completion
    - User also wants school `general-coding` skill updated with .env convention (see pending)
 
+14. ✅ **Replace dotenvy with manual loader** — dropped dotenvy crate, wrote `load_dotenv()` in main.rs
+   - `350aa84` Replace dotenvy with manual .env loader
+
 ## TODO — Not Started
 
 ### Immediate (this sprint)
-- [ ] **Fix dotenvy / replace with manual loader** — `dotenvy::from_filename` silently fails;
-      `.env.local` has valid `FASTMAIL_API_TOKEN=fmu1-...` but `fm config` shows "(not set)".
-      Plan: drop dotenvy crate, write a simple `load_dotenv()` in main.rs that parses
-      `KEY=VALUE` lines and calls `std::env::set_var`. Remove `dotenvy` from Cargo.toml.
-- [ ] **Verify Phase 2 JMAP** — Run curl against session endpoint (blocked on working .env)
+- [ ] **Verify Phase 2 JMAP** — Run curl against session endpoint (now unblocked)
 - [ ] **Update school `general-coding` skill** — add .env convention: `.env` committed with
       non-sensitive defaults, `.env.local` gitignored for real credentials, no `.env.example` pattern
 
