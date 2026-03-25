@@ -2,6 +2,7 @@
 mod logging;
 mod actions;
 mod cli;
+mod config;
 mod error;
 mod jmap;
 mod mcp;
@@ -38,10 +39,7 @@ fn exit_code(e: &error::Error) -> i32 {
 
 /// Connect to FastMail and build a Context. Shared by CLI commands and MCP mode.
 fn connect() -> error::Result<Context> {
-    let token = match std::env::var("FASTMAIL_API_TOKEN") {
-        Ok(t) if !t.is_empty() => t,
-        _ => return Err(error::Error::MissingToken),
-    };
+    let (token, _source) = config::resolve_token()?;
 
     let (client, session) = jmap::client::JmapClient::connect(&token)?;
 
