@@ -1,6 +1,6 @@
 # FasterMail Session State
 
-Saved: 2026-03-25 (session 8)
+Saved: 2026-03-25 (session 9)
 
 ## Way of Work
 
@@ -51,10 +51,14 @@ Saved: 2026-03-25 (session 8)
    - Updated `connect()` to use `config::resolve_token()`
    - 5 unit tests (parsing, path, permissions)
 
+11. ✅ **README.md** — install/configure/usage guide for FastMail users
+   - `ffdc8c3` Add README: install, configure, usage guide for FastMail users
+   - Sections: install (cargo), configure (fm setup + env var), usage (shortcuts + full commands), output formats, MCP server
+   - 122 lines, scannable 30-second quickstart
+
 ## TODO — Not Started
 
 ### Immediate (this sprint)
-- [ ] **README.md** — 30-second install/configure/use guide for regular FastMail users
 - [ ] **Verify Phase 2 JMAP** — Run curl against session endpoint
 
 ### Later
