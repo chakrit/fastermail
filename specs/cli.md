@@ -1,0 +1,341 @@
+# CLI Mode
+
+FasterMail ships as a single `fm` binary that operates in two modes:
+
+- **MCP mode** (`fm mcp`): stdio JSON-RPC server for AI assistants.
+- **CLI mode** (`fm <resource> <verb>`): interactive command-line tool for humans and scripts.
+
+Both modes share the same action implementations and JMAP client.
+
+## Binary Name
+
+The binary is named `fm`. The Cargo package name remains `fastermail`; the binary target is `fm`.
+
+## Command Structure
+
+```
+fm                          Show help
+fm mcp                      Run MCP server (stdio JSON-RPC)
+fm --version                Print version
+fm --help                   Print help
+
+fm emails list              List emails from a mailbox
+fm emails search            Search emails with filters
+fm emails get <id>          Get full body of a single email
+fm emails send              Compose and send an email
+fm emails move              Move emails between mailboxes
+fm emails delete            Delete emails
+fm emails flag              Set/unset flags on emails
+
+fm mailboxes list           List all mailboxes
+fm mailboxes create         Create a mailbox
+fm mailboxes rename         Rename a mailbox
+fm mailboxes delete         Delete a mailbox
+
+fm identities list          List sending identities
+
+fm vacation get             Get vacation/auto-reply settings
+fm vacation set             Enable/disable/update vacation auto-reply
+
+fm masked-emails list       List masked email addresses
+fm masked-emails create     Create a new masked email address
+fm masked-emails update     Enable/disable/delete a masked email
+```
+
+## Output Modes
+
+Every command supports three output formats controlled by a global flag:
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| (none) | Human-friendly table/text output | ✓ |
+| `--json` | JSON output (our simplified format, matching MCP tool responses) | |
+| `--raw` | Raw JMAP response (for debugging/advanced use) | |
+
+Human-friendly output uses `tabwriter` for aligned columns. Example:
+
+```
+$ fm emails list --mailbox Inbox --limit 3
+ID          DATE                 FROM                    SUBJECT
+e-abc123    2024-03-15 09:30    alice@example.com       Meeting tomorrow
+e-def456    2024-03-14 17:22    bob@corp.com            Q1 Report
+e-ghi789    2024-03-14 11:05    notifications@gh.com    [PR] Review requested
+```
+
+```
+$ fm emails list --mailbox Inbox --limit 3 --json
+[
+  {"id": "e-abc123", "date": "2024-03-15T09:30:00Z", "from": [...], "subject": "Meeting tomorrow", "preview": "..."},
+  ...
+]
+```
+
+## Authentication
+
+### Environment Variable (default)
+
+```bash
+export FASTMAIL_API_TOKEN=fmu1-...
+fm emails list
+```
+
+### Config File
+
+`~/.config/fastermail/config.toml`:
+
+```toml
+[auth]
+token = "fmu1-..."
+```
+
+Precedence: `FASTMAIL_API_TOKEN` env var > config file.
+
+The config file is created with `0600` permissions. `fm` refuses to run if the file is
+world-readable.
+
+## CLI Argument Design
+
+Arguments follow these conventions:
+
+- **Required positional args** for primary identifiers: `fm emails get <id>`.
+- **Named flags** for optional parameters: `--mailbox`, `--limit`, `--format`.
+- **Flag names match MCP parameter names** where possible, converted to kebab-case:
+  `mailboxId` → `--mailbox-id`, `includeBody` → `--include-body`.
+- **Short aliases** for common flags: `-n` for `--limit`, `-m` for `--mailbox-id`.
+
+### Per-Command Arguments
+
+#### `fm emails list`
+
+```
+fm emails list [OPTIONS]
+
+Options:
+  -m, --mailbox-id <ID>        Mailbox ID to fetch from
+      --mailbox-name <NAME>    Mailbox name (resolved to ID, case-insensitive)
+  -n, --limit <N>              Max results (default 20)
+      --include-body           Include body content
+      --json                   JSON output
+      --raw                    Raw JMAP output
+```
+
+#### `fm emails search`
+
+```
+fm emails search [OPTIONS]
+
+At least one filter is required.
+
+Options:
+  -q, --keyword <TEXT>         Full-text search
+      --from <ADDR>            Sender address filter
+      --to <ADDR>              Recipient address filter
+      --subject <TEXT>         Subject filter
+  -m, --mailbox-id <ID>        Restrict to mailbox
+      --has-attachment         Filter for emails with attachments
+      --after <YYYY-MM-DD>    Date lower bound
+      --before <YYYY-MM-DD>   Date upper bound
+  -n, --limit <N>              Max results (default 20)
+      --include-body           Include body content
+      --json                   JSON output
+      --raw                    Raw JMAP output
+```
+
+#### `fm emails get <EMAIL_ID>`
+
+```
+fm emails get <EMAIL_ID> [OPTIONS]
+
+Options:
+      --format <FORMAT>        text, html, or both (default text)
+      --json                   JSON output
+      --raw                    Raw JMAP output
+```
+
+#### `fm emails send`
+
+```
+fm emails send [OPTIONS]
+
+Options:
+      --to <ADDR>              Recipient (repeatable)
+      --subject <TEXT>         Subject line
+      --body <TEXT>            Body text (or read from stdin if omitted)
+      --cc <ADDR>              CC recipient (repeatable)
+      --bcc <ADDR>             BCC recipient (repeatable)
+      --html                   Body is HTML
+      --reply-to <EMAIL_ID>   Email ID being replied to
+```
+
+#### `fm emails move`
+
+```
+fm emails move <EMAIL_ID>... --to <MAILBOX_ID>
+```
+
+#### `fm emails delete`
+
+```
+fm emails delete <EMAIL_ID>... [OPTIONS]
+
+Options:
+      --permanent              Permanently delete (skip trash)
+```
+
+#### `fm emails flag`
+
+```
+fm emails flag <EMAIL_ID>... --flag <FLAG> [--unset]
+
+Options:
+      --flag <FLAG>            seen, flagged, answered, or draft
+      --unset                  Unset the flag (default: set)
+```
+
+#### `fm mailboxes list`
+
+```
+fm mailboxes list [OPTIONS]
+
+Options:
+      --role <ROLE>            Filter by role (inbox, sent, drafts, trash, junk, archive)
+      --json                   JSON output
+```
+
+#### `fm mailboxes create`
+
+```
+fm mailboxes create <NAME> [OPTIONS]
+
+Options:
+      --parent-id <ID>         Parent mailbox ID
+```
+
+#### `fm mailboxes rename`
+
+```
+fm mailboxes rename <MAILBOX_ID> <NEW_NAME>
+```
+
+#### `fm mailboxes delete`
+
+```
+fm mailboxes delete <MAILBOX_ID>
+```
+
+#### `fm identities list`
+
+```
+fm identities list [OPTIONS]
+
+Options:
+      --json                   JSON output
+```
+
+#### `fm vacation get`
+
+```
+fm vacation get [OPTIONS]
+
+Options:
+      --json                   JSON output
+```
+
+#### `fm vacation set`
+
+```
+fm vacation set [OPTIONS]
+
+Options:
+      --enabled                Enable auto-reply
+      --disabled               Disable auto-reply
+      --from <DATE>            Start date (ISO 8601)
+      --to <DATE>              End date (ISO 8601)
+      --subject <TEXT>         Auto-reply subject
+      --text-body <TEXT>       Plain text body
+      --html-body <TEXT>       HTML body
+```
+
+#### `fm masked-emails list`
+
+```
+fm masked-emails list [OPTIONS]
+
+Options:
+      --state <STATE>          Filter: pending, enabled, disabled, deleted
+      --json                   JSON output
+```
+
+#### `fm masked-emails create`
+
+```
+fm masked-emails create [OPTIONS]
+
+Options:
+      --domain <DOMAIN>        Domain this address is for
+      --description <TEXT>     Human-readable label
+      --prefix <TEXT>          Preferred prefix for the address
+```
+
+#### `fm masked-emails update`
+
+```
+fm masked-emails update <ID> --state <STATE>
+
+Options:
+      --state <STATE>          enabled, disabled, or deleted
+```
+
+## Implementation
+
+### Dependencies
+
+Add `clap` with the `derive` feature for argument parsing:
+
+```toml
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+```
+
+### Architecture
+
+```
+src/
+  main.rs              CLI entry point, clap App definition
+  cli/
+    mod.rs             CLI output formatting, shared types
+    emails.rs          Email subcommand handlers
+    mailboxes.rs       Mailbox subcommand handlers
+    identities.rs      Identity subcommand handlers
+    vacation.rs        Vacation subcommand handlers
+    masked_emails.rs   Masked email subcommand handlers
+  actions/             (existing — shared with MCP)
+  jmap/                (existing — shared with MCP)
+  mcp/                 (existing — MCP server)
+```
+
+Each CLI subcommand handler:
+1. Parses clap args into the corresponding action struct.
+2. Calls `action.run(&ctx)`.
+3. Formats the result according to the output mode.
+
+The `Context` creation (token → connect → session → account_id) is shared between
+`fm mcp` and CLI commands.
+
+### Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success |
+| 1 | Startup error (missing token, connection failure) |
+| 2 | Invalid arguments |
+| 3 | API error (JMAP call failed) |
+
+### Stdin Body Input
+
+`fm emails send` reads body from stdin when `--body` is omitted, enabling piping:
+
+```bash
+echo "Hello, world!" | fm emails send --to user@example.com --subject "Test"
+cat draft.html | fm emails send --to user@example.com --subject "Newsletter" --html
+```
