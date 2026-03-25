@@ -3,6 +3,53 @@ use crate::error::{Error, Result};
 use crate::jmap::types::back_reference;
 use crate::mcp::types::Tool;
 
+/// Extract actual body text from JMAP part-reference objects and bodyValues map.
+/// Transforms `textBody` and `htmlBody` from arrays of part-references into actual content strings,
+/// adds a `date` field from `receivedAt`, and removes the raw `bodyValues` key.
+fn extract_body_content(email: &mut serde_json::Value) {
+    if let Some(obj) = email.as_object_mut() {
+        // Add `date` field from `receivedAt`
+        if let Some(received) = obj.get("receivedAt").cloned() {
+            obj.insert("date".to_string(), received);
+        }
+
+        let body_values = obj.get("bodyValues").cloned();
+
+        // Extract textBody content
+        if let Some(text_body) = obj.get("textBody").cloned() {
+            if let Some(parts) = text_body.as_array() {
+                if let Some(first) = parts.first() {
+                    if let Some(part_id) = first.get("partId").and_then(|p| p.as_str()) {
+                        if let Some(ref bv) = body_values {
+                            if let Some(content) = bv.get(part_id).and_then(|v| v.get("value")) {
+                                obj.insert("textBody".to_string(), content.clone());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Extract htmlBody content
+        if let Some(html_body) = obj.get("htmlBody").cloned() {
+            if let Some(parts) = html_body.as_array() {
+                if let Some(first) = parts.first() {
+                    if let Some(part_id) = first.get("partId").and_then(|p| p.as_str()) {
+                        if let Some(ref bv) = body_values {
+                            if let Some(content) = bv.get(part_id).and_then(|v| v.get("value")) {
+                                obj.insert("htmlBody".to_string(), content.clone());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Remove raw bodyValues - consumers don't need it
+        obj.remove("bodyValues");
+    }
+}
+
 pub fn tools() -> Vec<Tool> {
     vec![
         Tool {
@@ -44,7 +91,7 @@ pub fn tools() -> Vec<Tool> {
                 "type": "object",
                 "properties": {
                     "emailId": { "type": "string", "description": "Email ID" },
-                    "format": { "type": "string", "description": "text, html, or both (default text)" }
+                    "format": { "type": "string", "description": "text, html, or both (default text)", "enum": ["text", "html", "both"] }
                 },
                 "required": ["emailId"]
             }),
@@ -97,7 +144,7 @@ pub fn tools() -> Vec<Tool> {
                 "type": "object",
                 "properties": {
                     "emailIds": { "type": "array", "items": { "type": "string" }, "description": "Email IDs" },
-                    "flag": { "type": "string", "description": "Flag: seen, flagged, answered, draft" },
+                    "flag": { "type": "string", "description": "Flag: seen, flagged, answered, draft", "enum": ["seen", "flagged", "answered", "draft"] },
                     "value": { "type": "boolean", "description": "Set (true) or unset (false)" }
                 },
                 "required": ["emailIds", "flag", "value"]
@@ -138,6 +185,7 @@ impl Action for GetEmails {
 
         if self.include_body {
             get_args["fetchTextBodyValues"] = serde_json::json!(true);
+            get_args["fetchHTMLBodyValues"] = serde_json::json!(true);
             get_args["properties"] = serde_json::json!(
                 ["id", "subject", "from", "to", "receivedAt", "preview", "textBody", "htmlBody", "bodyValues"]
             );
@@ -150,12 +198,18 @@ impl Action for GetEmails {
 
         let resp = ctx.jmap.call(using, method_calls)?;
 
-        let email_data = resp
+        let mut email_data = resp
             .method_responses
             .iter()
             .find(|(m, _, _)| m == "Email/get")
             .map(|(_, data, _)| data.get("list").cloned().unwrap_or(serde_json::json!([])))
             .unwrap_or(serde_json::json!([]));
+
+        if let Some(emails) = email_data.as_array_mut() {
+            for email in emails.iter_mut() {
+                extract_body_content(email);
+            }
+        }
 
         Ok(email_data)
     }
@@ -236,6 +290,10 @@ impl Action for SearchEmails {
 
         if self.include_body {
             get_args["fetchTextBodyValues"] = serde_json::json!(true);
+            get_args["fetchHTMLBodyValues"] = serde_json::json!(true);
+            get_args["properties"] = serde_json::json!(
+                ["id", "subject", "from", "to", "receivedAt", "preview", "textBody", "htmlBody", "bodyValues"]
+            );
         }
 
         let method_calls = vec![
@@ -245,12 +303,18 @@ impl Action for SearchEmails {
 
         let resp = ctx.jmap.call(using, method_calls)?;
 
-        let email_data = resp
+        let mut email_data = resp
             .method_responses
             .iter()
             .find(|(m, _, _)| m == "Email/get")
             .map(|(_, data, _)| data.get("list").cloned().unwrap_or(serde_json::json!([])))
             .unwrap_or(serde_json::json!([]));
+
+        if let Some(emails) = email_data.as_array_mut() {
+            for email in emails.iter_mut() {
+                extract_body_content(email);
+            }
+        }
 
         Ok(email_data)
     }
@@ -339,7 +403,7 @@ impl Action for GetEmailBody {
             .jmap
             .call_one("urn:ietf:params:jmap:mail", "Email/get", args)?;
 
-        let email = data
+        let mut email = data
             .get("list")
             .and_then(|l| l.as_array())
             .and_then(|arr| arr.first())
@@ -347,6 +411,8 @@ impl Action for GetEmailBody {
             .ok_or_else(|| {
                 Error::InvalidParams(format!("email not found: {}", self.email_id))
             })?;
+
+        extract_body_content(&mut email);
 
         Ok(email)
     }
@@ -473,6 +539,30 @@ impl Action for SendEmail {
 
         let resp = ctx.jmap.call(using, method_calls)?;
 
+        // Check for submission failures in EmailSubmission/set response.
+        if let Some((_, sub_data, _)) = resp
+            .method_responses
+            .iter()
+            .find(|(m, _, _)| m == "EmailSubmission/set")
+        {
+            if let Some(not_created) = sub_data.get("notCreated") {
+                if let Some(obj) = not_created.as_object() {
+                    if !obj.is_empty() {
+                        let desc = obj
+                            .values()
+                            .next()
+                            .and_then(|v| v.get("description"))
+                            .and_then(|d| d.as_str())
+                            .unwrap_or("submission rejected");
+                        return Err(Error::Jmap {
+                            method: "EmailSubmission/set".to_string(),
+                            message: desc.to_string(),
+                        });
+                    }
+                }
+            }
+        }
+
         let email_id = resp
             .method_responses
             .iter()
@@ -579,10 +669,16 @@ impl Action for MoveEmail {
             "update": update
         });
 
-        ctx.jmap
+        let data = ctx.jmap
             .call_one("urn:ietf:params:jmap:mail", "Email/set", args)?;
 
-        Ok(serde_json::json!({ "moved": self.email_ids.len() }))
+        let moved = data
+            .get("updated")
+            .and_then(|u| u.as_object())
+            .map(|m| m.len())
+            .unwrap_or(0);
+
+        Ok(serde_json::json!({ "moved": moved }))
     }
 }
 
@@ -603,8 +699,16 @@ impl Action for DeleteEmail {
                 "destroy": self.email_ids
             });
 
-            ctx.jmap
+            let data = ctx.jmap
                 .call_one("urn:ietf:params:jmap:mail", "Email/set", args)?;
+
+            let deleted = data
+                .get("destroyed")
+                .and_then(|d| d.as_array())
+                .map(|a| a.len())
+                .unwrap_or(0);
+
+            return Ok(serde_json::json!({ "deleted": deleted }));
         } else {
             let trash_data = ctx.jmap.call_one(
                 "urn:ietf:params:jmap:mail",
@@ -644,11 +748,17 @@ impl Action for DeleteEmail {
                 "update": update
             });
 
-            ctx.jmap
+            let data = ctx.jmap
                 .call_one("urn:ietf:params:jmap:mail", "Email/set", args)?;
-        }
 
-        Ok(serde_json::json!({ "deleted": self.email_ids.len() }))
+            let deleted = data
+                .get("updated")
+                .and_then(|u| u.as_object())
+                .map(|m| m.len())
+                .unwrap_or(0);
+
+            Ok(serde_json::json!({ "deleted": deleted }))
+        }
     }
 }
 
@@ -694,9 +804,15 @@ impl Action for FlagEmail {
             "update": update
         });
 
-        ctx.jmap
+        let data = ctx.jmap
             .call_one("urn:ietf:params:jmap:mail", "Email/set", args)?;
 
-        Ok(serde_json::json!({ "updated": self.email_ids.len() }))
+        let updated = data
+            .get("updated")
+            .and_then(|u| u.as_object())
+            .map(|m| m.len())
+            .unwrap_or(0);
+
+        Ok(serde_json::json!({ "updated": updated }))
     }
 }

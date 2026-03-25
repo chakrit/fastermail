@@ -165,6 +165,9 @@ fn dispatch_tool(
             action.run(ctx)
         }
         "flag_email" => {
+            if args.get("value").is_none() {
+                return Err(Error::InvalidParams("value is required".to_string()));
+            }
             let action = email::FlagEmail {
                 email_ids: str_array_param(args, "emailIds"),
                 flag: str_param(args, "flag"),
@@ -179,11 +182,7 @@ fn dispatch_tool(
         "set_vacation_response" => {
             let action = vacation::SetVacationResponse {
                 is_enabled: args.get("isEnabled").and_then(|v| v.as_bool()),
-                from_date: str_param(args, "fromDate"),
-                to_date: str_param(args, "toDate"),
-                subject: str_param(args, "subject"),
-                text_body: str_param(args, "textBody"),
-                html_body: str_param(args, "htmlBody"),
+                raw_args: args.clone(),
             };
             action.run(ctx)
         }

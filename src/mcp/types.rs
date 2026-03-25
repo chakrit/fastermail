@@ -51,7 +51,6 @@ impl JsonRpcResponse {
 // --- Error Codes ---
 
 pub const PARSE_ERROR: i32 = -32700;
-#[allow(dead_code)]
 pub const INVALID_REQUEST: i32 = -32600;
 pub const METHOD_NOT_FOUND: i32 = -32601;
 #[allow(dead_code)]

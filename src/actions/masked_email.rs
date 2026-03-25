@@ -1,6 +1,9 @@
-use crate::actions::{Action, Context};
+use crate::actions::{project_fields, project_fields_array, Action, Context};
 use crate::error::{Error, Result};
 use crate::mcp::types::Tool;
+
+const LIST_FIELDS: &[&str] = &["id", "email", "forDomain", "description", "state", "createdAt"];
+const CREATE_FIELDS: &[&str] = &["id", "email"];
 
 const CAPABILITY: &str = "https://www.fastmail.com/dev/maskedemail";
 
@@ -52,6 +55,16 @@ pub struct ListMaskedEmails {
 
 impl Action for ListMaskedEmails {
     fn run(&self, ctx: &Context) -> Result<serde_json::Value> {
+        // Validate state before making the JMAP call to avoid wasting a round trip.
+        if !self.state.is_empty() {
+            let valid_states = ["pending", "enabled", "disabled", "deleted"];
+            if !valid_states.contains(&self.state.as_str()) {
+                return Err(Error::InvalidParams(
+                    "state must be pending, enabled, disabled, or deleted".to_string(),
+                ));
+            }
+        }
+
         let data = ctx.jmap.call_one(
             CAPABILITY,
             "MaskedEmail/get",
@@ -61,14 +74,7 @@ impl Action for ListMaskedEmails {
         let list = data.get("list").cloned().unwrap_or(serde_json::json!([]));
 
         if self.state.is_empty() {
-            return Ok(list);
-        }
-
-        let valid_states = ["pending", "enabled", "disabled", "deleted"];
-        if !valid_states.contains(&self.state.as_str()) {
-            return Err(Error::InvalidParams(
-                "state must be pending, enabled, disabled, or deleted".to_string(),
-            ));
+            return Ok(project_fields_array(&list, LIST_FIELDS));
         }
 
         let filtered: Vec<&serde_json::Value> = list
@@ -80,7 +86,7 @@ impl Action for ListMaskedEmails {
             })
             .unwrap_or_default();
 
-        Ok(serde_json::json!(filtered))
+        Ok(project_fields_array(&serde_json::json!(filtered), LIST_FIELDS))
     }
 }
 
@@ -117,7 +123,7 @@ impl Action for CreateMaskedEmail {
             .cloned()
             .unwrap_or(serde_json::json!({}));
 
-        Ok(created)
+        Ok(project_fields(&created, CREATE_FIELDS))
     }
 }
 

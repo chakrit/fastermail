@@ -34,7 +34,8 @@ fn run_server() {
     let token = match std::env::var("FASTMAIL_API_TOKEN") {
         Ok(t) if !t.is_empty() => t,
         _ => {
-            log_error!("main", "FASTMAIL_API_TOKEN environment variable not set");
+            let err = error::Error::MissingToken;
+            log_error!("main", "{err}");
             process::exit(1);
         }
     };

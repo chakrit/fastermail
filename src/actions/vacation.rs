@@ -1,6 +1,8 @@
-use crate::actions::{Action, Context};
+use crate::actions::{project_fields, Action, Context};
 use crate::error::Result;
 use crate::mcp::types::Tool;
+
+const GET_FIELDS: &[&str] = &["isEnabled", "fromDate", "toDate", "subject", "textBody", "htmlBody"];
 
 pub fn tools() -> Vec<Tool> {
     vec![
@@ -48,17 +50,34 @@ impl Action for GetVacationResponse {
             .cloned()
             .unwrap_or(serde_json::json!({}));
 
-        Ok(vacation)
+        Ok(project_fields(&vacation, GET_FIELDS))
     }
 }
 
 pub struct SetVacationResponse {
     pub is_enabled: Option<bool>,
-    pub from_date: String,
-    pub to_date: String,
-    pub subject: String,
-    pub text_body: String,
-    pub html_body: String,
+    pub raw_args: serde_json::Value,
+}
+
+impl SetVacationResponse {
+    /// If a key is present in the raw arguments, return its value for the JMAP update.
+    /// Present with null or empty string -> set to null (clear the field).
+    /// Present with a non-empty string -> set to that string.
+    /// Absent -> don't include (leave unchanged).
+    fn resolve_field(args: &serde_json::Value, key: &str) -> Option<serde_json::Value> {
+        match args.get(key) {
+            None => None,
+            Some(v) if v.is_null() => Some(serde_json::Value::Null),
+            Some(v) => {
+                let s = v.as_str().unwrap_or("");
+                if s.is_empty() {
+                    Some(serde_json::Value::Null)
+                } else {
+                    Some(serde_json::json!(s))
+                }
+            }
+        }
+    }
 }
 
 impl Action for SetVacationResponse {
@@ -71,20 +90,11 @@ impl Action for SetVacationResponse {
             "isEnabled": is_enabled
         });
 
-        if !self.from_date.is_empty() {
-            update["fromDate"] = serde_json::json!(self.from_date);
-        }
-        if !self.to_date.is_empty() {
-            update["toDate"] = serde_json::json!(self.to_date);
-        }
-        if !self.subject.is_empty() {
-            update["subject"] = serde_json::json!(self.subject);
-        }
-        if !self.text_body.is_empty() {
-            update["textBody"] = serde_json::json!(self.text_body);
-        }
-        if !self.html_body.is_empty() {
-            update["htmlBody"] = serde_json::json!(self.html_body);
+        let fields = &["fromDate", "toDate", "subject", "textBody", "htmlBody"];
+        for &field in fields {
+            if let Some(value) = Self::resolve_field(&self.raw_args, field) {
+                update[field] = value;
+            }
         }
 
         let args = serde_json::json!({

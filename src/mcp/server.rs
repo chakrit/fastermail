@@ -2,12 +2,15 @@ use std::io::{self, BufRead, Write};
 
 use crate::actions::Context;
 use crate::mcp::handler;
-use crate::mcp::types::{JsonRpcRequest, JsonRpcResponse, METHOD_NOT_FOUND, PARSE_ERROR};
+use crate::mcp::types::{
+    JsonRpcRequest, JsonRpcResponse, INVALID_REQUEST, METHOD_NOT_FOUND, PARSE_ERROR,
+};
 
 /// Run the MCP server stdio loop.
 pub fn run(ctx: Context) -> crate::error::Result<()> {
     let stdin = io::stdin();
     let mut stdout = io::stdout();
+    let mut initialized = false;
 
     for line in stdin.lock().lines() {
         let line = line?;
@@ -33,6 +36,19 @@ pub fn run(ctx: Context) -> crate::error::Result<()> {
             }
         };
 
+        // Validate jsonrpc field is "2.0"
+        if request.jsonrpc != "2.0" {
+            log_warn!("mcp", "invalid jsonrpc version: {}", request.jsonrpc);
+            let id = request.id.clone().unwrap_or(serde_json::Value::Null);
+            let resp = JsonRpcResponse::error(
+                id,
+                INVALID_REQUEST,
+                format!("invalid jsonrpc version: {}", request.jsonrpc),
+            );
+            write_response(&mut stdout, &resp, &ctx, "invalid_request")?;
+            continue;
+        }
+
         let method = request.method.clone();
 
         if request.id.is_none() {
@@ -40,7 +56,7 @@ pub fn run(ctx: Context) -> crate::error::Result<()> {
                 rec.record_mcp_request(&method, line);
             }
             log_debug!("mcp", "notification: {method}");
-            handle_notification(&method);
+            handle_notification(&method, &mut initialized);
             continue;
         }
 
@@ -51,7 +67,7 @@ pub fn run(ctx: Context) -> crate::error::Result<()> {
         log_debug!("mcp", "request: {method}");
 
         let id = request.id.clone().unwrap_or(serde_json::Value::Null);
-        let response = handle_request(&method, request.params, id, &ctx);
+        let response = handle_request(&method, request.params, id, &ctx, &mut initialized);
 
         write_response(&mut stdout, &response, &ctx, &method)?;
     }
@@ -65,10 +81,22 @@ fn handle_request(
     params: serde_json::Value,
     id: serde_json::Value,
     ctx: &Context,
+    initialized: &mut bool,
 ) -> JsonRpcResponse {
+    // Before initialization, only allow initialize and ping
+    if !*initialized && method != "initialize" && method != "ping" {
+        log_warn!("mcp", "method called before initialization: {method}");
+        return JsonRpcResponse::error(
+            id,
+            METHOD_NOT_FOUND,
+            format!("server not initialized, call initialize first"),
+        );
+    }
+
     match method {
         "initialize" => {
             let result = handler::handle_initialize(params);
+            *initialized = true;
             JsonRpcResponse::success(id, result)
         }
         "ping" => JsonRpcResponse::success(id, serde_json::json!({})),
@@ -87,9 +115,10 @@ fn handle_request(
     }
 }
 
-fn handle_notification(method: &str) {
+fn handle_notification(method: &str, initialized: &mut bool) {
     match method {
         "notifications/initialized" => {
+            *initialized = true;
             log_info!("mcp", "client initialized");
         }
         _ => {

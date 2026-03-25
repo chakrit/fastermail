@@ -51,7 +51,7 @@ impl Recorder {
         let parsed: serde_json::Value = serde_json::from_str(raw).unwrap_or_default();
 
         let entry = serde_json::json!({
-            "type": "mcp_request",
+            "type": "mcp_req",
             "timestamp": timestamp(),
             "method": method,
             "message": parsed,
@@ -65,7 +65,7 @@ impl Recorder {
         let parsed: serde_json::Value = serde_json::from_str(raw).unwrap_or_default();
 
         let entry = serde_json::json!({
-            "type": "mcp_response",
+            "type": "mcp_resp",
             "timestamp": timestamp(),
             "method": method,
             "message": parsed,

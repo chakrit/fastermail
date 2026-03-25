@@ -1,6 +1,8 @@
-use crate::actions::{Action, Context};
+use crate::actions::{project_fields_array, Action, Context};
 use crate::error::{Error, Result};
 use crate::mcp::types::Tool;
+
+const LIST_FIELDS: &[&str] = &["id", "name", "role", "totalEmails", "unreadEmails", "parentId"];
 
 pub fn tools() -> Vec<Tool> {
     vec![
@@ -12,7 +14,8 @@ pub fn tools() -> Vec<Tool> {
                 "properties": {
                     "role": {
                         "type": "string",
-                        "description": "Filter by role (inbox, sent, drafts, trash, junk, archive)"
+                        "description": "Filter by role (inbox, sent, drafts, trash, junk, archive)",
+                        "enum": ["inbox", "sent", "drafts", "trash", "junk", "archive"]
                     }
                 }
             }),
@@ -66,7 +69,7 @@ impl Action for ListMailboxes {
         let list = data.get("list").cloned().unwrap_or(serde_json::json!([]));
 
         if self.role.is_empty() {
-            return Ok(list);
+            return Ok(project_fields_array(&list, LIST_FIELDS));
         }
 
         let filtered: Vec<&serde_json::Value> = list
@@ -78,7 +81,7 @@ impl Action for ListMailboxes {
             })
             .unwrap_or_default();
 
-        Ok(serde_json::json!(filtered))
+        Ok(project_fields_array(&serde_json::json!(filtered), LIST_FIELDS))
     }
 }
 

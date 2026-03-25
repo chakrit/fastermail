@@ -1,6 +1,8 @@
-use crate::actions::{Action, Context};
+use crate::actions::{project_fields_array, Action, Context};
 use crate::error::Result;
 use crate::mcp::types::Tool;
+
+const LIST_FIELDS: &[&str] = &["id", "name", "email", "replyTo"];
 
 pub fn tools() -> Vec<Tool> {
     vec![Tool {
@@ -24,6 +26,6 @@ impl Action for ListIdentities {
         )?;
 
         let list = data.get("list").cloned().unwrap_or(serde_json::json!([]));
-        Ok(list)
+        Ok(project_fields_array(&list, LIST_FIELDS))
     }
 }
