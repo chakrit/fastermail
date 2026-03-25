@@ -3,7 +3,15 @@ name = "fastermail"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "fm"
+path = "src/main.rs"
+
 [dependencies]
+clap = { version = "4", features = ["derive"] }
+console = "0.16"
+indicatif = { version = "0.18", default-features = false, features = ["unicode-width"] }
+inquire = { version = "0.9", default-features = false, features = ["console", "one-liners"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
