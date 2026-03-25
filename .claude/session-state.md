@@ -1,6 +1,6 @@
 # FasterMail Session State
 
-Saved: 2026-03-25 (session 6)
+Saved: 2026-03-25 (session 7)
 
 ## Way of Work
 
@@ -35,17 +35,23 @@ Saved: 2026-03-25 (session 6)
    - Fixed `GetEmailBody` action to request `from`, `to`, `receivedAt` properties
    - Default `emails list` to inbox when `--mailbox` omitted
 
+9. ✅ **Mailbox resolution** — role aliases, fuzzy name matching, interactive disambiguation
+   - New `src/cli/resolve.rs` with `resolve_mailbox()` function
+   - Resolution: role alias → exact name → prefix → substring (case-insensitive)
+   - Multiple matches: `inquire::Select` in Human mode, error with candidates in Json/Raw
+   - Wired into `emails list`, `search --mailbox`, `move --to`
+   - 8 unit tests for matching logic
+   - MCP path unchanged (still uses action's `mailbox_name` field)
+
 ## TODO — Not Started
 
 ### Immediate (this sprint)
-- [ ] **Mailbox resolution** — role aliases + fuzzy name matching in CLI
-  - Currently: `emails list` uses action's exact-name match; `search`/`move` pass raw input as mailbox_id
-  - Need: role alias lookup (inbox→role:inbox), prefix/substring match, interactive disambiguation via inquire
 - [ ] **Config file auth** — `~/.config/fastermail/config.toml` with 0600 perms
 - [ ] **README.md** — 30-second install/configure/use guide for regular FastMail users
 - [ ] **Verify Phase 2 JMAP** — Run curl against session endpoint
 
 ### Later
+- [ ] **Local caching layer** — cache mailbox lists, identities, etc. to avoid repeated JMAP calls
 - [ ] **Phase 2 spec rewrite**: CardDAV/CalDAV → JMAP (pending verification)
 - [ ] **Test infrastructure**: mock JMAP, per-action unit tests, integration tests (big gap)
 - [ ] **Dockerfile**: Multi-stage build for distribution

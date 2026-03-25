@@ -3,6 +3,7 @@ pub mod identities;
 pub mod io;
 pub mod mailboxes;
 pub mod masked_emails;
+pub mod resolve;
 pub mod vacation;
 
 use clap::{Parser, Subcommand};

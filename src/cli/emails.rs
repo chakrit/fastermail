@@ -5,6 +5,7 @@ use crate::actions::email::{
 };
 use crate::actions::{Action, Context};
 use crate::cli::io::{Io, OutputMode};
+use crate::cli::resolve::resolve_mailbox;
 use crate::error::Result;
 
 #[derive(Subcommand)]
@@ -153,11 +154,12 @@ pub fn run(cmd: EmailCommand, ctx: &Context, io: &Io) -> Result<()> {
             limit,
             include_body,
         } => {
+            let input = mailbox.clone().unwrap_or_else(|| "inbox".to_string());
+            let mailbox_id = resolve_mailbox(&input, ctx, io)?;
             let spinner = io.progress("Fetching emails…");
-            let mailbox_name = mailbox.clone().unwrap_or_else(|| "inbox".to_string());
             let action = GetEmails {
-                mailbox_id: String::new(),
-                mailbox_name,
+                mailbox_id,
+                mailbox_name: String::new(),
                 limit,
                 include_body,
             };
@@ -178,13 +180,17 @@ pub fn run(cmd: EmailCommand, ctx: &Context, io: &Io) -> Result<()> {
             limit,
             include_body,
         } => {
+            let mailbox_id = match mailbox {
+                Some(ref input) => resolve_mailbox(input, ctx, io)?,
+                None => String::new(),
+            };
             let spinner = io.progress("Searching emails…");
             let action = SearchEmails {
                 keyword: keyword.unwrap_or_default(),
                 from: from.unwrap_or_default(),
                 to: to.unwrap_or_default(),
                 subject: subject.unwrap_or_default(),
-                mailbox_id: mailbox.unwrap_or_default(),
+                mailbox_id,
                 has_attachment: if has_attachment { Some(true) } else { None },
                 after: after.unwrap_or_default(),
                 before: before.unwrap_or_default(),
@@ -205,11 +211,12 @@ pub fn run(cmd: EmailCommand, ctx: &Context, io: &Io) -> Result<()> {
             format_email_body(io, &value);
         }
         EmailCommand::Move { email_ids, to } => {
+            let mailbox_id = resolve_mailbox(&to, ctx, io)?;
             let count = email_ids.len();
             let spinner = io.progress(&format!("Moving {count} email(s)…"));
             let action = MoveEmail {
                 email_ids,
-                mailbox_id: to.clone(),
+                mailbox_id,
             };
             let result = action.run(ctx);
             Io::finish_progress(spinner);
