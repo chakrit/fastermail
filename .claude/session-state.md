@@ -1,6 +1,6 @@
 # FasterMail Session State
 
-Saved: 2026-03-25 (session 10, wrap 2)
+Saved: 2026-03-25 (session 11, wrap 1)
 
 ## Way of Work
 
@@ -61,6 +61,11 @@ Saved: 2026-03-25 (session 10, wrap 2)
    - Loads .env then .env.local at startup (local overrides base)
    - `.env.local` gitignored, `.env` tracked for dev defaults
 
+13. ✅ **Communication prefs in CLAUDE.md** — ported from ACE project
+   - `ecdf710` Add communication prefs to CLAUDE.md, update session state
+   - Sections: Communication Style, Workflow (edit protocol, never-assume), Metrics, Response Completion
+   - User also wants school `general-coding` skill updated with .env convention (see pending)
+
 ## TODO — Not Started
 
 ### Immediate (this sprint)
@@ -69,6 +74,8 @@ Saved: 2026-03-25 (session 10, wrap 2)
       Plan: drop dotenvy crate, write a simple `load_dotenv()` in main.rs that parses
       `KEY=VALUE` lines and calls `std::env::set_var`. Remove `dotenvy` from Cargo.toml.
 - [ ] **Verify Phase 2 JMAP** — Run curl against session endpoint (blocked on working .env)
+- [ ] **Update school `general-coding` skill** — add .env convention: `.env` committed with
+      non-sensitive defaults, `.env.local` gitignored for real credentials, no `.env.example` pattern
 
 ### Later
 - [ ] **Local caching layer** — cache mailbox lists, identities, etc. to avoid repeated JMAP calls
