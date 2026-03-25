@@ -30,9 +30,8 @@ fastermail/
 │       └── identity.rs      # Identity action structs
 ```
 
-Phase 2 action files (`contact.rs`, `calendar.rs`) will be added when
-FastMail exposes contacts/calendars via JMAP or when CardDAV/CalDAV
-support is implemented.
+Phase 2 action file (`contact.rs`) will be added when contacts
+implementation begins. Calendars dropped (no JMAP capability).
 
 ## Key Types
 

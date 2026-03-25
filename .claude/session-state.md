@@ -1,6 +1,6 @@
 # FasterMail Session State
 
-Saved: 2026-03-25 (session 13)
+Saved: 2026-03-25 (session 14)
 
 ## Way of Work
 
@@ -70,6 +70,7 @@ Saved: 2026-03-25 (session 13)
    - `350aa84` Replace dotenvy with manual .env loader
 
 15. ✅ **Verify Phase 2 JMAP** — curled session endpoint, inspected capabilities
+16. ✅ **Drop non-JMAP specs** — deleted 6 calendar/event spec files, updated 5 spec references
    - **Contacts**: `urn:ietf:params:jmap:contacts` ✅ available
    - **Calendars**: no `urn:ietf:params:jmap:calendars` ❌ (CalDAV only)
    - **Masked email**: `https://www.fastmail.com/dev/maskedemail` ✅ bonus
@@ -84,13 +85,15 @@ Saved: 2026-03-25 (session 13)
 
 ### Later
 - [ ] **Local caching layer** — cache mailbox lists, identities, etc. to avoid repeated JMAP calls
-- [ ] **Phase 2 spec rewrite**: Contacts → JMAP (verified available). Calendars → CalDAV only (no JMAP capability). Masked email also available.
 - [ ] **Test infrastructure**: mock JMAP, per-action unit tests, integration tests (big gap)
 - [ ] **Dockerfile**: Multi-stage build for distribution
 - [ ] **CI/release**: Cross-compilation for 4 targets (x86_64/aarch64 × linux/macos)
-- [ ] **Phase 2 implementation**: Contacts (JMAP) + calendars (CalDAV or drop)
+- [ ] **Phase 2 implementation**: Contacts (JMAP, verified available)
 - [ ] **Raw output mode**: True JMAP response pass-through (currently same as Json)
 - [ ] **Masked email support**: `maskedemail` capability available via FastMail extension
+
+### Dropped
+- ~~Calendars~~ — FastMail has no `jmap:calendars` capability (CalDAV only)
 
 ## Key Decisions Made
 

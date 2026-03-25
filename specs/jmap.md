@@ -48,6 +48,5 @@ Bearer token in the `Authorization` header for all requests. The token format is
 | `urn:ietf:params:jmap:vacationresponse`     | Vacation Response |
 | `https://www.fastmail.com/dev/maskedemail`  | Masked Email (FastMail-specific) |
 
-**Not yet available via JMAP** (use CardDAV/CalDAV):
+**Phase 2** (verified available, not yet implemented):
 - `urn:ietf:params:jmap:contacts` — Contacts
-- `urn:ietf:params:jmap:calendars` — Calendars

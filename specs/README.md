@@ -4,9 +4,8 @@ FasterMail is an MCP (Model Context Protocol) server written in Rust that expose
 APIs to AI assistants. It communicates over stdio using JSON-RPC 2.0.
 
 **Phase 1 (JMAP):** Email, sending, vacation response, masked email — all available via JMAP today.
-**Phase 2 (CardDAV/CalDAV):** Contacts and calendars — FastMail does not yet expose these via
-JMAP (only CardDAV/CalDAV). When FastMail enables JMAP for contacts/calendars, Phase 2 tools
-can migrate to JMAP.
+**Phase 2 (JMAP):** Contacts — verified available via `urn:ietf:params:jmap:contacts`.
+Calendars dropped (FastMail only exposes CalDAV, no JMAP capability).
 
 ## Design Decisions
 

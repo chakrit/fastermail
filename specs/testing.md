@@ -720,8 +720,7 @@ src/
     ├── vacation.rs         # #[cfg(test)] mod tests — vacation response actions
     ├── masked_email.rs     # #[cfg(test)] mod tests — masked email actions
     ├── identity.rs         # #[cfg(test)] mod tests — identity actions
-    ├── contact.rs          # #[cfg(test)] mod tests — contact actions (Phase 2)
-    └── calendar.rs         # #[cfg(test)] mod tests — calendar actions (Phase 2)
+    └── contact.rs          # #[cfg(test)] mod tests — contact actions (Phase 2)
 
 tests/
 └── integration.rs          # End-to-end: spawn binary, pipe JSON-RPC, verify

@@ -40,9 +40,7 @@ snake_case. Parameters use camelCase (matching JMAP conventions in the MCP schem
 | `create_masked_email` | Create a new masked email address | [create_masked_email.md](create_masked_email.md) |
 | `update_masked_email` | Enable/disable/delete a masked email | [update_masked_email.md](update_masked_email.md) |
 
-## Phase 2 — CardDAV/CalDAV (FastMail lacks JMAP support)
-
-### Contacts
+## Phase 2 — Contacts (JMAP)
 
 | Tool | Description | Spec |
 |------|-------------|------|
@@ -52,14 +50,3 @@ snake_case. Parameters use camelCase (matching JMAP conventions in the MCP schem
 | `create_contact` | Create a new contact | [create_contact.md](create_contact.md) |
 | `update_contact` | Update an existing contact | [update_contact.md](update_contact.md) |
 | `delete_contact` | Delete a contact | [delete_contact.md](delete_contact.md) |
-
-### Calendars
-
-| Tool | Description | Spec |
-|------|-------------|------|
-| `list_calendars` | List all calendars | [list_calendars.md](list_calendars.md) |
-| `get_events` | Get calendar events | [get_events.md](get_events.md) |
-| `search_events` | Search calendar events | [search_events.md](search_events.md) |
-| `create_event` | Create a calendar event | [create_event.md](create_event.md) |
-| `update_event` | Update a calendar event | [update_event.md](update_event.md) |
-| `delete_event` | Delete a calendar event | [delete_event.md](delete_event.md) |
