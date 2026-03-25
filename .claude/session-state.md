@@ -1,6 +1,6 @@
 # FasterMail Session State
 
-Saved: 2026-03-25 (session 7)
+Saved: 2026-03-25 (session 8)
 
 ## Way of Work
 
@@ -43,10 +43,17 @@ Saved: 2026-03-25 (session 7)
    - 8 unit tests for matching logic
    - MCP path unchanged (still uses action's `mailbox_name` field)
 
+10. ✅ **Config file auth** — `~/.config/fastermail/config.toml` with 0600 perms
+   - `4b89853` Add config file auth
+   - New `src/config.rs`: resolve_token (env > config file), write_config, 0600 perms check
+   - `fm config` — prints config path, token source, masked token (human + JSON)
+   - `fm setup` — interactive inquire prompt, writes config, verifies connection
+   - Updated `connect()` to use `config::resolve_token()`
+   - 5 unit tests (parsing, path, permissions)
+
 ## TODO — Not Started
 
 ### Immediate (this sprint)
-- [ ] **Config file auth** — `~/.config/fastermail/config.toml` with 0600 perms
 - [ ] **README.md** — 30-second install/configure/use guide for regular FastMail users
 - [ ] **Verify Phase 2 JMAP** — Run curl against session endpoint
 
@@ -64,7 +71,7 @@ Saved: 2026-03-25 (session 7)
 - Binary name: `fm` (short), MCP mode via `fm mcp`
 - CLI structure: resource-first then verb (`fm emails list`)
 - CLI focus: email organization/triage, not composition
-- Mailbox aliases: built-in role aliases + fuzzy name matching (not yet implemented)
+- Mailbox aliases: built-in role aliases + fuzzy name matching
 - UX libs: indicatif + inquire + console (match ACE patterns)
 - Output: human-friendly default, `--json` for scripting, `--raw` for debug
 - Auto-detect: non-TTY stdout → JSON mode
