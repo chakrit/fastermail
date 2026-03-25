@@ -1,4 +1,5 @@
 target/
+.env.local
 
 # ACE-managed — do not edit this block.
 # These folders are symlinks to the school cache managed by `ace setup`.

@@ -10,6 +10,7 @@ path = "src/main.rs"
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 console = "0.16"
+dotenvy = "0.15"
 indicatif = { version = "0.18", default-features = false, features = ["unicode-width"] }
 inquire = { version = "0.9", default-features = false, features = ["console", "one-liners"] }
 serde = { version = "1", features = ["derive"] }

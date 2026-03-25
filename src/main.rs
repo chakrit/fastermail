@@ -16,6 +16,10 @@ use crate::actions::Context;
 use crate::cli::Cli;
 
 fn main() {
+    // Load .env then .env.local (local overrides base). Missing files are fine.
+    let _ = dotenvy::from_filename(".env");
+    let _ = dotenvy::from_filename(".env.local");
+
     logging::init();
 
     let cli = Cli::parse();
