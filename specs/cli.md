@@ -7,6 +7,27 @@ FasterMail ships as a single `fm` binary that operates in two modes:
 
 Both modes share the same action implementations and JMAP client.
 
+## Design Philosophy
+
+The CLI is primarily an **email organization and triage** tool. The core workflow is:
+read, search, move, flag, archive — the inbox-zero loop.
+
+Sending and replying are supported but minimal. Composing email is better done through
+MCP-enabled AI assistants, which can draft context-aware replies. The CLI just needs to
+get messages out of the way.
+
+**Optimize for:**
+
+- Moving emails between mailboxes (the core action)
+- Searching and filtering
+- Flagging/unflagging
+- Reading and listing
+
+**Minimal support:**
+
+- `fm emails send` — basic, no interactive compose
+- Reply workflows — leave to MCP
+
 ## Binary Name
 
 The binary is named `fm`. The Cargo package name remains `fastermail`; the binary target is `fm`.
@@ -19,43 +40,109 @@ fm mcp                      Run MCP server (stdio JSON-RPC)
 fm --version                Print version
 fm --help                   Print help
 
+# Email triage (primary workflow)
 fm emails list              List emails from a mailbox
 fm emails search            Search emails with filters
 fm emails get <id>          Get full body of a single email
-fm emails send              Compose and send an email
 fm emails move              Move emails between mailboxes
-fm emails delete            Delete emails
 fm emails flag              Set/unset flags on emails
+fm emails delete            Delete emails
 
+# Email sending (minimal)
+fm emails send              Compose and send an email
+
+# Mailbox management
 fm mailboxes list           List all mailboxes
 fm mailboxes create         Create a mailbox
 fm mailboxes rename         Rename a mailbox
 fm mailboxes delete         Delete a mailbox
 
+# Other resources
 fm identities list          List sending identities
-
 fm vacation get             Get vacation/auto-reply settings
 fm vacation set             Enable/disable/update vacation auto-reply
-
 fm masked-emails list       List masked email addresses
 fm masked-emails create     Create a new masked email address
 fm masked-emails update     Enable/disable/delete a masked email
 ```
 
-## Output Modes
+### Top-Level Shortcuts
 
-Every command supports three output formats controlled by a global flag:
-
-| Flag | Description | Default |
-|------|-------------|---------|
-| (none) | Human-friendly table/text output | ✓ |
-| `--json` | JSON output (our simplified format, matching MCP tool responses) | |
-| `--raw` | Raw JMAP response (for debugging/advanced use) | |
-
-Human-friendly output uses `tabwriter` for aligned columns. Example:
+For the triage workflow, these shortcuts skip the `emails` prefix:
 
 ```
-$ fm emails list --mailbox Inbox --limit 3
+fm mv <id>... <mailbox>     → fm emails move <id>... --to <mailbox>
+fm ls [mailbox]             → fm emails list [--mailbox <mailbox>]
+fm read <id>                → fm emails get <id>
+```
+
+These are clap aliases, not separate implementations.
+
+## Mailbox Resolution
+
+Mailboxes can be specified by ID, role alias, or fuzzy name. This applies everywhere a
+mailbox is accepted: `--mailbox`, `--to`, positional args in shortcuts.
+
+### Built-in Role Aliases
+
+These names resolve to mailbox IDs via the JMAP `role` field:
+
+| Alias | JMAP Role |
+|-------|-----------|
+| `inbox` | `inbox` |
+| `sent` | `sent` |
+| `drafts` | `drafts` |
+| `trash` | `trash` |
+| `junk` | `junk` |
+| `archive` | `archive` |
+
+### Fuzzy Name Matching
+
+When the input doesn't match a role alias or a full mailbox ID, resolve by:
+
+1. **Exact name match** (case-insensitive): `Projects` matches "Projects"
+2. **Prefix match** (case-insensitive): `proj` matches "Projects"
+3. **Substring match** (case-insensitive): `ject` matches "Projects"
+
+If multiple mailboxes match, prompt the user to select (interactive mode) or fail with
+the list of candidates (non-interactive / JSON mode).
+
+### Examples
+
+```bash
+fm mv e-abc123 trash              # role alias → Trash mailbox
+fm mv e-abc123 proj               # fuzzy → "Projects" mailbox
+fm ls inbox                       # role alias → Inbox
+fm emails list --mailbox archive  # role alias → Archive
+```
+
+## Output Modes
+
+Every command supports three output formats:
+
+| Mode | Flag | When | Description |
+|------|------|------|-------------|
+| Human | (default) | TTY | Colors, spinners, aligned tables, status indicators |
+| JSON | `--json` | non-TTY or flag | Simplified JSON matching MCP tool responses |
+| Raw | `--raw` | flag only | Full JMAP response for debugging |
+
+**Auto-detection:** When stdout is not a terminal, default to JSON mode (like piping to
+`jq` or another program). The `--json` flag forces JSON even on a TTY. Human mode is
+only used when stdout is a TTY and no format flag is given.
+
+### Human Output
+
+Uses `console` for colors and `indicatif` for progress spinners. Status indicators:
+
+- `✓` green — success
+- `⚠` yellow — warning
+- `✗` red — error
+- `→` dim — hint
+
+```
+$ fm ls inbox -n 3
+✓ 3 emails in Inbox
+
 ID          DATE                 FROM                    SUBJECT
 e-abc123    2024-03-15 09:30    alice@example.com       Meeting tomorrow
 e-def456    2024-03-14 17:22    bob@corp.com            Q1 Report
@@ -63,12 +150,64 @@ e-ghi789    2024-03-14 11:05    notifications@gh.com    [PR] Review requested
 ```
 
 ```
-$ fm emails list --mailbox Inbox --limit 3 --json
+$ fm mv e-abc123 archive
+✓ Moved 1 email to Archive
+```
+
+### JSON Output
+
+```
+$ fm ls inbox -n 3 --json
 [
   {"id": "e-abc123", "date": "2024-03-15T09:30:00Z", "from": [...], "subject": "Meeting tomorrow", "preview": "..."},
   ...
 ]
 ```
+
+## UX Patterns
+
+### Io Struct
+
+Centralized output through an `Io` struct (adapted from ACE's pattern):
+
+```rust
+pub struct Io { /* output_mode, stderr handle, spinner state */ }
+
+impl Io {
+    pub fn progress(&self, msg: &str) -> /* spinner handle */;
+    pub fn done(&self, msg: &str);      // ✓ green
+    pub fn warn(&self, msg: &str);      // ⚠ yellow
+    pub fn error(&self, msg: &str);     // ✗ red
+    pub fn hint(&self, msg: &str);      // → dim
+    pub fn data(&self, msg: &str);      // stdout, raw data (tables, JSON)
+    pub fn separator(&self);            // visual break
+}
+```
+
+All user-facing output goes through `Io`. Commands never write directly to
+stdout/stderr. In JSON/Raw mode, `progress`/`done`/`warn` are suppressed; only `data`
+and `error` produce output.
+
+### Interactive Prompts
+
+When disambiguation is needed (e.g., fuzzy mailbox match returns multiple results),
+use `inquire` to prompt:
+
+```
+$ fm mv e-abc123 pro
+? Multiple mailboxes match "pro":
+> Projects
+  Promotions
+  Process Notes
+```
+
+Prompts are skipped in non-interactive mode (non-TTY stdin); the command fails with
+candidates listed in the error message instead.
+
+### Terminal Cleanup
+
+A `TerminalGuard` (RAII) ensures terminal state is restored on SIGINT or panic —
+clears active spinners, re-shows cursor, resets colors.
 
 ## Authentication
 
@@ -95,13 +234,14 @@ world-readable.
 
 ## CLI Argument Design
 
-Arguments follow these conventions:
+Conventions:
 
 - **Required positional args** for primary identifiers: `fm emails get <id>`.
 - **Named flags** for optional parameters: `--mailbox`, `--limit`, `--format`.
 - **Flag names match MCP parameter names** where possible, converted to kebab-case:
   `mailboxId` → `--mailbox-id`, `includeBody` → `--include-body`.
-- **Short aliases** for common flags: `-n` for `--limit`, `-m` for `--mailbox-id`.
+- **Short aliases** for common flags: `-n` for `--limit`, `-m` for `--mailbox`.
+- **Mailbox flags accept any resolution form**: ID, role alias, or fuzzy name.
 
 ### Per-Command Arguments
 
@@ -111,12 +251,11 @@ Arguments follow these conventions:
 fm emails list [OPTIONS]
 
 Options:
-  -m, --mailbox-id <ID>        Mailbox ID to fetch from
-      --mailbox-name <NAME>    Mailbox name (resolved to ID, case-insensitive)
-  -n, --limit <N>              Max results (default 20)
-      --include-body           Include body content
-      --json                   JSON output
-      --raw                    Raw JMAP output
+  -m, --mailbox <MAILBOX>    Mailbox (ID, role alias, or name)
+  -n, --limit <N>            Max results (default 20)
+      --include-body         Include body content
+      --json                 JSON output
+      --raw                  Raw JMAP output
 ```
 
 #### `fm emails search`
@@ -127,18 +266,18 @@ fm emails search [OPTIONS]
 At least one filter is required.
 
 Options:
-  -q, --keyword <TEXT>         Full-text search
-      --from <ADDR>            Sender address filter
-      --to <ADDR>              Recipient address filter
-      --subject <TEXT>         Subject filter
-  -m, --mailbox-id <ID>        Restrict to mailbox
-      --has-attachment         Filter for emails with attachments
-      --after <YYYY-MM-DD>    Date lower bound
-      --before <YYYY-MM-DD>   Date upper bound
-  -n, --limit <N>              Max results (default 20)
-      --include-body           Include body content
-      --json                   JSON output
-      --raw                    Raw JMAP output
+  -q, --keyword <TEXT>       Full-text search
+      --from <ADDR>          Sender address filter
+      --to <ADDR>            Recipient address filter
+      --subject <TEXT>        Subject filter
+  -m, --mailbox <MAILBOX>    Restrict to mailbox (ID, role alias, or name)
+      --has-attachment        Filter for emails with attachments
+      --after <YYYY-MM-DD>   Date lower bound
+      --before <YYYY-MM-DD>  Date upper bound
+  -n, --limit <N>            Max results (default 20)
+      --include-body         Include body content
+      --json                 JSON output
+      --raw                  Raw JMAP output
 ```
 
 #### `fm emails get <EMAIL_ID>`
@@ -147,39 +286,18 @@ Options:
 fm emails get <EMAIL_ID> [OPTIONS]
 
 Options:
-      --format <FORMAT>        text, html, or both (default text)
-      --json                   JSON output
-      --raw                    Raw JMAP output
-```
-
-#### `fm emails send`
-
-```
-fm emails send [OPTIONS]
-
-Options:
-      --to <ADDR>              Recipient (repeatable)
-      --subject <TEXT>         Subject line
-      --body <TEXT>            Body text (or read from stdin if omitted)
-      --cc <ADDR>              CC recipient (repeatable)
-      --bcc <ADDR>             BCC recipient (repeatable)
-      --html                   Body is HTML
-      --reply-to <EMAIL_ID>   Email ID being replied to
+      --format <FORMAT>      text, html, or both (default text)
+      --json                 JSON output
+      --raw                  Raw JMAP output
 ```
 
 #### `fm emails move`
 
 ```
-fm emails move <EMAIL_ID>... --to <MAILBOX_ID>
-```
-
-#### `fm emails delete`
-
-```
-fm emails delete <EMAIL_ID>... [OPTIONS]
+fm emails move <EMAIL_ID>... --to <MAILBOX>
 
 Options:
-      --permanent              Permanently delete (skip trash)
+      --to <MAILBOX>         Target mailbox (ID, role alias, or name)
 ```
 
 #### `fm emails flag`
@@ -188,8 +306,32 @@ Options:
 fm emails flag <EMAIL_ID>... --flag <FLAG> [--unset]
 
 Options:
-      --flag <FLAG>            seen, flagged, answered, or draft
-      --unset                  Unset the flag (default: set)
+      --flag <FLAG>          seen, flagged, answered, or draft
+      --unset                Unset the flag (default: set)
+```
+
+#### `fm emails delete`
+
+```
+fm emails delete <EMAIL_ID>... [OPTIONS]
+
+Options:
+      --permanent            Permanently delete (skip trash)
+```
+
+#### `fm emails send`
+
+```
+fm emails send [OPTIONS]
+
+Options:
+      --to <ADDR>            Recipient (repeatable)
+      --subject <TEXT>        Subject line
+      --body <TEXT>           Body text (or read from stdin if omitted)
+      --cc <ADDR>             CC recipient (repeatable)
+      --bcc <ADDR>            BCC recipient (repeatable)
+      --html                  Body is HTML
+      --reply-to <EMAIL_ID>  Email ID being replied to
 ```
 
 #### `fm mailboxes list`
@@ -198,8 +340,8 @@ Options:
 fm mailboxes list [OPTIONS]
 
 Options:
-      --role <ROLE>            Filter by role (inbox, sent, drafts, trash, junk, archive)
-      --json                   JSON output
+      --role <ROLE>          Filter by role (inbox, sent, drafts, trash, junk, archive)
+      --json                 JSON output
 ```
 
 #### `fm mailboxes create`
@@ -208,7 +350,7 @@ Options:
 fm mailboxes create <NAME> [OPTIONS]
 
 Options:
-      --parent-id <ID>         Parent mailbox ID
+      --parent-id <ID>       Parent mailbox ID
 ```
 
 #### `fm mailboxes rename`
@@ -229,7 +371,7 @@ fm mailboxes delete <MAILBOX_ID>
 fm identities list [OPTIONS]
 
 Options:
-      --json                   JSON output
+      --json                 JSON output
 ```
 
 #### `fm vacation get`
@@ -238,7 +380,7 @@ Options:
 fm vacation get [OPTIONS]
 
 Options:
-      --json                   JSON output
+      --json                 JSON output
 ```
 
 #### `fm vacation set`
@@ -247,13 +389,13 @@ Options:
 fm vacation set [OPTIONS]
 
 Options:
-      --enabled                Enable auto-reply
-      --disabled               Disable auto-reply
-      --from <DATE>            Start date (ISO 8601)
-      --to <DATE>              End date (ISO 8601)
-      --subject <TEXT>         Auto-reply subject
-      --text-body <TEXT>       Plain text body
-      --html-body <TEXT>       HTML body
+      --enabled              Enable auto-reply
+      --disabled             Disable auto-reply
+      --from <DATE>          Start date (ISO 8601)
+      --to <DATE>            End date (ISO 8601)
+      --subject <TEXT>        Auto-reply subject
+      --text-body <TEXT>      Plain text body
+      --html-body <TEXT>      HTML body
 ```
 
 #### `fm masked-emails list`
@@ -262,8 +404,8 @@ Options:
 fm masked-emails list [OPTIONS]
 
 Options:
-      --state <STATE>          Filter: pending, enabled, disabled, deleted
-      --json                   JSON output
+      --state <STATE>        Filter: pending, enabled, disabled, deleted
+      --json                 JSON output
 ```
 
 #### `fm masked-emails create`
@@ -272,9 +414,9 @@ Options:
 fm masked-emails create [OPTIONS]
 
 Options:
-      --domain <DOMAIN>        Domain this address is for
-      --description <TEXT>     Human-readable label
-      --prefix <TEXT>          Preferred prefix for the address
+      --domain <DOMAIN>      Domain this address is for
+      --description <TEXT>    Human-readable label
+      --prefix <TEXT>         Preferred prefix for the address
 ```
 
 #### `fm masked-emails update`
@@ -283,18 +425,19 @@ Options:
 fm masked-emails update <ID> --state <STATE>
 
 Options:
-      --state <STATE>          enabled, disabled, or deleted
+      --state <STATE>        enabled, disabled, or deleted
 ```
 
 ## Implementation
 
 ### Dependencies
 
-Add `clap` with the `derive` feature for argument parsing:
-
 ```toml
 [dependencies]
 clap = { version = "4", features = ["derive"] }
+console = "0.16"
+indicatif = { version = "0.18", default-features = false, features = ["unicode-width"] }
+inquire = { version = "0.9", default-features = false, features = ["console", "one-liners"] }
 ```
 
 ### Architecture
@@ -303,9 +446,10 @@ clap = { version = "4", features = ["derive"] }
 src/
   main.rs              CLI entry point, clap App definition
   cli/
-    mod.rs             CLI output formatting, shared types
+    mod.rs             Cli struct, Command enum, OutputMode, top-level dispatch
+    io.rs              Io struct (progress/done/warn/error/hint/data), TerminalGuard
     emails.rs          Email subcommand handlers
-    mailboxes.rs       Mailbox subcommand handlers
+    mailboxes.rs       Mailbox subcommand handlers + resolution logic
     identities.rs      Identity subcommand handlers
     vacation.rs        Vacation subcommand handlers
     masked_emails.rs   Masked email subcommand handlers
@@ -316,11 +460,20 @@ src/
 
 Each CLI subcommand handler:
 1. Parses clap args into the corresponding action struct.
-2. Calls `action.run(&ctx)`.
-3. Formats the result according to the output mode.
+2. Resolves mailbox references (alias/fuzzy → ID) if needed.
+3. Shows a spinner via `Io::progress()` during the JMAP call.
+4. Calls `action.run(&ctx)`.
+5. Formats the result through `Io` according to the output mode.
 
 The `Context` creation (token → connect → session → account_id) is shared between
 `fm mcp` and CLI commands.
+
+### Error Handling
+
+- `thiserror` enums for structured errors.
+- `exit_on_err()` pattern: top-level catches `Result`, prints via `Io::error()`, exits
+  with appropriate code.
+- No panics in normal operation. `TerminalGuard` handles cleanup if one occurs.
 
 ### Exit Codes
 
