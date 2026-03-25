@@ -1,8 +1,9 @@
 use clap::Subcommand;
 
-use crate::actions::Context;
-use crate::cli::io::Io;
-use crate::error::Result;
+use crate::actions::vacation::{GetVacationResponse, SetVacationResponse};
+use crate::actions::{Action, Context};
+use crate::cli::io::{Io, OutputMode};
+use crate::error::{Error, Result};
 
 #[derive(Subcommand)]
 pub enum VacationCommand {
@@ -41,13 +42,100 @@ pub enum VacationCommand {
     },
 }
 
-pub fn run(cmd: VacationCommand, _ctx: &Context, io: &Io) -> Result<()> {
+pub fn run(cmd: VacationCommand, ctx: &Context, io: &Io) -> Result<()> {
     match cmd {
         VacationCommand::Get => {
-            io.error("vacation get: not yet implemented");
+            let spinner = io.progress("Fetching vacation settings…");
+            let action = GetVacationResponse;
+            let result = action.run(ctx);
+            Io::finish_progress(spinner);
+            let value = result?;
+
+            if io.mode() != OutputMode::Human {
+                io.json(&value);
+                return Ok(());
+            }
+
+            let enabled = value
+                .get("isEnabled")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let status = if enabled {
+                console::style("enabled").green().to_string()
+            } else {
+                console::style("disabled").dim().to_string()
+            };
+
+            io.done(&format!("Vacation auto-reply: {status}"));
+            io.separator();
+
+            for (key, label) in [
+                ("fromDate", "From"),
+                ("toDate", "To"),
+                ("subject", "Subject"),
+                ("textBody", "Text body"),
+            ] {
+                if let Some(v) = value.get(key).and_then(|v| v.as_str()) {
+                    if !v.is_empty() {
+                        io.data(&format!(
+                            "{} {}",
+                            console::style(format!("{label}:")).bold(),
+                            v
+                        ));
+                    }
+                }
+            }
         }
-        VacationCommand::Set { .. } => {
-            io.error("vacation set: not yet implemented");
+        VacationCommand::Set {
+            enabled,
+            disabled,
+            from,
+            to,
+            subject,
+            text_body,
+            html_body,
+        } => {
+            if !enabled && !disabled {
+                return Err(Error::InvalidParams(
+                    "must specify --enabled or --disabled".to_string(),
+                ));
+            }
+
+            let is_enabled = enabled; // if disabled is true, enabled is false
+
+            // Build raw_args for the action's resolve_field() logic
+            let mut raw = serde_json::Map::new();
+            if let Some(v) = from {
+                raw.insert("fromDate".to_string(), serde_json::json!(v));
+            }
+            if let Some(v) = to {
+                raw.insert("toDate".to_string(), serde_json::json!(v));
+            }
+            if let Some(v) = subject {
+                raw.insert("subject".to_string(), serde_json::json!(v));
+            }
+            if let Some(v) = text_body {
+                raw.insert("textBody".to_string(), serde_json::json!(v));
+            }
+            if let Some(v) = html_body {
+                raw.insert("htmlBody".to_string(), serde_json::json!(v));
+            }
+
+            let spinner = io.progress("Updating vacation settings…");
+            let action = SetVacationResponse {
+                is_enabled: Some(is_enabled),
+                raw_args: serde_json::Value::Object(raw),
+            };
+            let result = action.run(ctx);
+            Io::finish_progress(spinner);
+            result?;
+
+            if io.mode() == OutputMode::Human {
+                let state = if is_enabled { "enabled" } else { "disabled" };
+                io.done(&format!("Vacation auto-reply {state}"));
+            } else {
+                io.json(&serde_json::json!({ "success": true }));
+            }
         }
     }
     Ok(())

@@ -1,7 +1,10 @@
 use clap::Subcommand;
 
-use crate::actions::Context;
-use crate::cli::io::Io;
+use crate::actions::email::{
+    DeleteEmail, FlagEmail, GetEmailBody, GetEmails, MoveEmail, SearchEmails, SendEmail,
+};
+use crate::actions::{Action, Context};
+use crate::cli::io::{Io, OutputMode};
 use crate::error::Result;
 
 #[derive(Subcommand)]
@@ -143,34 +146,315 @@ pub enum EmailCommand {
     },
 }
 
-pub fn run(cmd: EmailCommand, _ctx: &Context, io: &Io) -> Result<()> {
+pub fn run(cmd: EmailCommand, ctx: &Context, io: &Io) -> Result<()> {
     match cmd {
-        EmailCommand::List { ref mailbox, limit, include_body } => {
-            let _ = (mailbox, limit, include_body);
-            io.error("emails list: not yet implemented");
+        EmailCommand::List {
+            ref mailbox,
+            limit,
+            include_body,
+        } => {
+            let spinner = io.progress("Fetching emails…");
+            let mailbox_name = mailbox.clone().unwrap_or_else(|| "inbox".to_string());
+            let action = GetEmails {
+                mailbox_id: String::new(),
+                mailbox_name,
+                limit,
+                include_body,
+            };
+            let result = action.run(ctx);
+            Io::finish_progress(spinner);
+            let value = result?;
+            format_email_list(io, &value);
         }
-        EmailCommand::Search { .. } => {
-            io.error("emails search: not yet implemented");
+        EmailCommand::Search {
+            keyword,
+            from,
+            to,
+            subject,
+            mailbox,
+            has_attachment,
+            after,
+            before,
+            limit,
+            include_body,
+        } => {
+            let spinner = io.progress("Searching emails…");
+            let action = SearchEmails {
+                keyword: keyword.unwrap_or_default(),
+                from: from.unwrap_or_default(),
+                to: to.unwrap_or_default(),
+                subject: subject.unwrap_or_default(),
+                mailbox_id: mailbox.unwrap_or_default(),
+                has_attachment: if has_attachment { Some(true) } else { None },
+                after: after.unwrap_or_default(),
+                before: before.unwrap_or_default(),
+                limit,
+                include_body,
+            };
+            let result = action.run(ctx);
+            Io::finish_progress(spinner);
+            let value = result?;
+            format_email_list(io, &value);
         }
         EmailCommand::Get { email_id, format } => {
-            let _ = (email_id, format);
-            io.error("emails get: not yet implemented");
+            let spinner = io.progress("Fetching email…");
+            let action = GetEmailBody { email_id, format };
+            let result = action.run(ctx);
+            Io::finish_progress(spinner);
+            let value = result?;
+            format_email_body(io, &value);
         }
         EmailCommand::Move { email_ids, to } => {
-            let _ = (email_ids, to);
-            io.error("emails move: not yet implemented");
+            let count = email_ids.len();
+            let spinner = io.progress(&format!("Moving {count} email(s)…"));
+            let action = MoveEmail {
+                email_ids,
+                mailbox_id: to.clone(),
+            };
+            let result = action.run(ctx);
+            Io::finish_progress(spinner);
+            let value = result?;
+            format_action_result(io, &value, &format!("Moved to {to}"));
         }
-        EmailCommand::Flag { email_ids, flag, unset } => {
-            let _ = (email_ids, flag, unset);
-            io.error("emails flag: not yet implemented");
+        EmailCommand::Flag {
+            email_ids,
+            flag,
+            unset,
+        } => {
+            let verb = if unset { "Unsetting" } else { "Setting" };
+            let spinner = io.progress(&format!("{verb} {flag}…"));
+            let action = FlagEmail {
+                email_ids,
+                flag: flag.clone(),
+                value: !unset,
+            };
+            let result = action.run(ctx);
+            Io::finish_progress(spinner);
+            let value = result?;
+            let verb = if unset { "Unset" } else { "Set" };
+            format_action_result(io, &value, &format!("{verb} {flag}"));
         }
-        EmailCommand::Delete { email_ids, permanent } => {
-            let _ = (email_ids, permanent);
-            io.error("emails delete: not yet implemented");
+        EmailCommand::Delete {
+            email_ids,
+            permanent,
+        } => {
+            let spinner = io.progress("Deleting emails…");
+            let action = DeleteEmail {
+                email_ids,
+                permanent,
+            };
+            let result = action.run(ctx);
+            Io::finish_progress(spinner);
+            let value = result?;
+            let label = if permanent {
+                "Permanently deleted"
+            } else {
+                "Moved to Trash"
+            };
+            format_action_result(io, &value, label);
         }
-        EmailCommand::Send { .. } => {
-            io.error("emails send: not yet implemented");
+        EmailCommand::Send {
+            to,
+            subject,
+            body,
+            cc,
+            bcc,
+            html,
+            reply_to,
+        } => {
+            let body_text = match body {
+                Some(b) => b,
+                None => {
+                    io.hint("Reading body from stdin…");
+                    let mut buf = String::new();
+                    std::io::Read::read_to_string(&mut std::io::stdin(), &mut buf)?;
+                    buf
+                }
+            };
+
+            let spinner = io.progress("Sending email…");
+            let action = SendEmail {
+                to,
+                subject,
+                body: body_text,
+                cc,
+                bcc,
+                is_html: html,
+                in_reply_to: reply_to.unwrap_or_default(),
+            };
+            let result = action.run(ctx);
+            Io::finish_progress(spinner);
+            let value = result?;
+
+            if io.mode() == OutputMode::Human {
+                let email_id = value
+                    .get("emailId")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+                io.done(&format!("Sent (ID: {email_id})"));
+            } else {
+                io.json(&value);
+            }
         }
     }
     Ok(())
+}
+
+/// Format an email list (array of email objects) for output.
+fn format_email_list(io: &Io, value: &serde_json::Value) {
+    if io.mode() != OutputMode::Human {
+        io.json(value);
+        return;
+    }
+
+    let emails = match value.as_array() {
+        Some(arr) => arr,
+        None => {
+            io.json(value);
+            return;
+        }
+    };
+
+    if emails.is_empty() {
+        io.warn("No emails found");
+        return;
+    }
+
+    io.done(&format!("{} email(s)", emails.len()));
+    io.separator();
+
+    // Print table header
+    io.data(&format!(
+        "{:<14} {:<20} {:<24} {}",
+        "ID", "DATE", "FROM", "SUBJECT"
+    ));
+    io.data(&format!("{}", "─".repeat(80)));
+
+    for email in emails {
+        let id = email
+            .get("id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("?");
+        let date = email
+            .get("date")
+            .or_else(|| email.get("receivedAt"))
+            .and_then(|v| v.as_str())
+            .map(|d| truncate_date(d))
+            .unwrap_or_default();
+        let from = email
+            .get("from")
+            .and_then(|v| v.as_array())
+            .and_then(|arr| arr.first())
+            .map(|f| format_address(f))
+            .unwrap_or_default();
+        let subject = email
+            .get("subject")
+            .and_then(|v| v.as_str())
+            .unwrap_or("(no subject)");
+
+        io.data(&format!(
+            "{:<14} {:<20} {:<24} {}",
+            truncate(id, 13),
+            date,
+            truncate(&from, 23),
+            truncate(subject, 40)
+        ));
+    }
+}
+
+/// Format a single email body for output.
+fn format_email_body(io: &Io, value: &serde_json::Value) {
+    if io.mode() != OutputMode::Human {
+        io.json(value);
+        return;
+    }
+
+    let subject = value
+        .get("subject")
+        .and_then(|v| v.as_str())
+        .unwrap_or("(no subject)");
+    let from = value
+        .get("from")
+        .and_then(|v| v.as_array())
+        .and_then(|arr| arr.first())
+        .map(|f| format_address(f))
+        .unwrap_or_default();
+    let date = value
+        .get("date")
+        .or_else(|| value.get("receivedAt"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    io.data(&format!(
+        "{} {}",
+        console::style("Subject:").bold(),
+        subject
+    ));
+    io.data(&format!(
+        "{}    {}",
+        console::style("From:").bold(),
+        from
+    ));
+    io.data(&format!(
+        "{}    {}",
+        console::style("Date:").bold(),
+        date
+    ));
+    io.separator();
+
+    // Show body content
+    if let Some(text) = value.get("textBody").and_then(|v| v.as_str()) {
+        io.data(text);
+    } else if let Some(html) = value.get("htmlBody").and_then(|v| v.as_str()) {
+        io.data(html);
+    } else {
+        io.warn("No body content");
+    }
+}
+
+/// Format action results (moved/deleted/updated counts).
+fn format_action_result(io: &Io, value: &serde_json::Value, label: &str) {
+    if io.mode() != OutputMode::Human {
+        io.json(value);
+        return;
+    }
+
+    // Look for count fields: "moved", "deleted", "updated"
+    let count = value
+        .get("moved")
+        .or_else(|| value.get("deleted"))
+        .or_else(|| value.get("updated"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+
+    io.done(&format!("{label}: {count} email(s)"));
+}
+
+/// Format a JMAP address object { "name": "...", "email": "..." } into a display string.
+fn format_address(addr: &serde_json::Value) -> String {
+    let name = addr.get("name").and_then(|v| v.as_str()).unwrap_or("");
+    let email = addr.get("email").and_then(|v| v.as_str()).unwrap_or("");
+    if name.is_empty() {
+        email.to_string()
+    } else {
+        format!("{name} <{email}>")
+    }
+}
+
+/// Truncate a datetime string to "YYYY-MM-DD HH:MM" for display.
+fn truncate_date(s: &str) -> String {
+    // Input: "2024-03-15T09:30:00Z" → "2024-03-15 09:30"
+    s.replace('T', " ")
+        .chars()
+        .take(16)
+        .collect()
+}
+
+/// Truncate a string to max length, appending "…" if truncated.
+fn truncate(s: &str, max: usize) -> String {
+    if s.len() <= max {
+        s.to_string()
+    } else {
+        format!("{}…", &s[..max.saturating_sub(1)])
+    }
 }

@@ -1,7 +1,8 @@
 use clap::Subcommand;
 
-use crate::actions::Context;
-use crate::cli::io::Io;
+use crate::actions::mailbox::{ListMailboxes, ManageMailbox};
+use crate::actions::{Action, Context};
+use crate::cli::io::{Io, OutputMode};
 use crate::error::Result;
 
 #[derive(Subcommand)]
@@ -39,24 +40,128 @@ pub enum MailboxCommand {
     },
 }
 
-pub fn run(cmd: MailboxCommand, _ctx: &Context, io: &Io) -> Result<()> {
+pub fn run(cmd: MailboxCommand, ctx: &Context, io: &Io) -> Result<()> {
     match cmd {
         MailboxCommand::List { role } => {
-            let _ = role;
-            io.error("mailboxes list: not yet implemented");
+            let spinner = io.progress("Fetching mailboxes…");
+            let action = ListMailboxes {
+                role: role.unwrap_or_default(),
+            };
+            let result = action.run(ctx);
+            Io::finish_progress(spinner);
+            let value = result?;
+            format_mailbox_list(io, &value);
         }
         MailboxCommand::Create { name, parent_id } => {
-            let _ = (name, parent_id);
-            io.error("mailboxes create: not yet implemented");
+            let spinner = io.progress("Creating mailbox…");
+            let action = ManageMailbox {
+                action: "create".to_string(),
+                name: name.clone(),
+                mailbox_id: String::new(),
+                parent_id: parent_id.unwrap_or_default(),
+            };
+            let result = action.run(ctx);
+            Io::finish_progress(spinner);
+            let value = result?;
+
+            if io.mode() == OutputMode::Human {
+                let id = value
+                    .get("mailboxId")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("?");
+                io.done(&format!("Created mailbox \"{name}\" (ID: {id})"));
+            } else {
+                io.json(&value);
+            }
         }
-        MailboxCommand::Rename { mailbox_id, new_name } => {
-            let _ = (mailbox_id, new_name);
-            io.error("mailboxes rename: not yet implemented");
+        MailboxCommand::Rename {
+            mailbox_id,
+            new_name,
+        } => {
+            let spinner = io.progress("Renaming mailbox…");
+            let action = ManageMailbox {
+                action: "rename".to_string(),
+                name: new_name.clone(),
+                mailbox_id,
+                parent_id: String::new(),
+            };
+            let result = action.run(ctx);
+            Io::finish_progress(spinner);
+            result?;
+            if io.mode() == OutputMode::Human {
+                io.done(&format!("Renamed to \"{new_name}\""));
+            } else {
+                io.json(&serde_json::json!({ "success": true }));
+            }
         }
         MailboxCommand::Delete { mailbox_id } => {
-            let _ = mailbox_id;
-            io.error("mailboxes delete: not yet implemented");
+            let spinner = io.progress("Deleting mailbox…");
+            let action = ManageMailbox {
+                action: "delete".to_string(),
+                name: String::new(),
+                mailbox_id: mailbox_id.clone(),
+                parent_id: String::new(),
+            };
+            let result = action.run(ctx);
+            Io::finish_progress(spinner);
+            result?;
+            if io.mode() == OutputMode::Human {
+                io.done(&format!("Deleted mailbox {mailbox_id}"));
+            } else {
+                io.json(&serde_json::json!({ "success": true }));
+            }
         }
     }
     Ok(())
+}
+
+fn format_mailbox_list(io: &Io, value: &serde_json::Value) {
+    if io.mode() != OutputMode::Human {
+        io.json(value);
+        return;
+    }
+
+    let mailboxes = match value.as_array() {
+        Some(arr) => arr,
+        None => {
+            io.json(value);
+            return;
+        }
+    };
+
+    if mailboxes.is_empty() {
+        io.warn("No mailboxes found");
+        return;
+    }
+
+    io.done(&format!("{} mailbox(es)", mailboxes.len()));
+    io.separator();
+
+    io.data(&format!(
+        "{:<40} {:<20} {:<10} {:>6} {:>6}",
+        "ID", "NAME", "ROLE", "TOTAL", "UNREAD"
+    ));
+    io.data(&format!("{}", "─".repeat(84)));
+
+    for mb in mailboxes {
+        let id = mb.get("id").and_then(|v| v.as_str()).unwrap_or("?");
+        let name = mb.get("name").and_then(|v| v.as_str()).unwrap_or("?");
+        let role = mb
+            .get("role")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let total = mb
+            .get("totalEmails")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        let unread = mb
+            .get("unreadEmails")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+
+        io.data(&format!(
+            "{:<40} {:<20} {:<10} {:>6} {:>6}",
+            id, name, role, total, unread
+        ));
+    }
 }

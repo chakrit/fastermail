@@ -1,102 +1,69 @@
 # FasterMail Session State
 
-Saved: 2026-03-25
+Saved: 2026-03-25 (session 6)
 
-## Uncommitted Changes
+## Way of Work
 
-12 files modified, 254 insertions, 65 deletions. Build clean, 21 tests pass, 0 warnings.
-
-### Code Fixes Applied
-
-**High severity (broken functionality → fixed):**
-- `src/actions/email.rs`: Body content extraction — `get_emails`, `search_emails`, `get_email_body` now extract actual text from JMAP `bodyValues` instead of returning raw part-reference arrays
-- `src/actions/email.rs`: `search_emails` now includes body properties when `includeBody=true`
-- `src/actions/email.rs`: `get_emails` now fetches both text AND HTML body values (`fetchHTMLBodyValues`)
-
-**Medium severity (incorrect but functional → fixed):**
-- `src/actions/email.rs`: `move_email`/`delete_email`/`flag_email` return actual JMAP response counts instead of input array length
-- `src/actions/email.rs`: `send_email` checks for JMAP-level submission failures (`notCreated`)
-- `src/actions/email.rs`: Added `date` field mapped from `receivedAt` for user-friendliness
-- `src/actions/mod.rs`: Added `project_fields()` and `project_fields_array()` helpers
-- `src/actions/mailbox.rs`: `list_mailboxes` projects to spec-defined fields only
-- `src/actions/vacation.rs`: `get_vacation_response` projects to spec-defined fields only
-- `src/actions/vacation.rs`: `set_vacation_response` can now clear fields via null (uses `raw_args` + `resolve_field()`)
-- `src/actions/identity.rs`: `list_identities` projects to spec-defined fields only
-- `src/actions/masked_email.rs`: `list_masked_emails`/`create_masked_email` project to spec-defined fields; state validation moved before JMAP call
-- `src/mcp/server.rs`: `jsonrpc: "2.0"` validation added
-- `src/mcp/server.rs`: Handshake enforcement (must `initialize` before `tools/call`)
-- `src/mcp/handler.rs`: `flag_email` validates `value` param is present (required)
-- `src/mcp/handler.rs`: `set_vacation_response` dispatch passes `raw_args`
-
-**Low severity (cosmetic/spec drift → fixed):**
-- `src/actions/email.rs`, `src/actions/mailbox.rs`: Schema enum constraints added for `format`, `flag`, `role`
-- `src/error.rs`: Removed `#[allow(dead_code)]` from `MissingToken`
-- `src/main.rs`: `MissingToken` variant now properly constructed
-- `src/mcp/types.rs`: Removed `#[allow(dead_code)]` from `INVALID_REQUEST`
-- `src/recorder.rs`: JSON type fields changed to `mcp_req`/`mcp_resp` (was `mcp_request`/`mcp_response`)
-
-### New Files (uncommitted)
-- `specs/cli.md` — Full CLI spec (resource-verb structure, output modes, auth, per-command args, architecture)
-- `DOCS.md` — 5-minute user-facing explainer of how FasterMail works
+1. **Memory check** — restate this workflow, list tasks, identify next one
+2. **Confirm plan** — get user approval before starting
+3. **Do the work**
+4. **Self-audit** — check results against instructions/specs/conventions
+5. **Repeat audit** until no gaps remain
+6. **Prepare compaction note** — user compacts, cycle restarts
 
 ## Completed Tasks
 
-1. **Full spec audit** — 4 parallel audits covering all code vs all specs
-   - Email tools (7 tools): 3 high, 5 medium, 4 low severity findings
-   - Non-email tools (8 tools): 1 systemic (response projection), 3 tool-specific issues
-   - Protocol & architecture: 2 protocol, 6 testing, 3 distribution gaps
-   - Phase 2 readiness: 40% ready, major finding about JMAP availability
-
-2. **All code fixes applied** — every audit finding addressed
-
-3. **CLI spec written** — `specs/cli.md` covers:
-   - `fm` binary name, `fm mcp` for MCP mode
-   - Resource-verb command structure (`fm emails list`, `fm mailboxes create`, etc.)
-   - Three output modes: human tables (default), `--json`, `--raw`
-   - Auth via env var + config file (`~/.config/fastermail/config.toml`)
-   - Per-command argument definitions with short aliases
-   - `src/cli/` module architecture, exit codes, stdin body input for send
-
-4. **DOCS.md written** — covers architecture diagram, all 15 tools explained, auth, protocols (JMAP/MCP), output formats
-
-5. **Phase 2 research** — FastMail likely supports contacts/calendars via JMAP with vendor-specific capability URIs (`https://www.fastmail.com/dev/contacts`, `https://www.fastmail.com/dev/calendars`). Needs verification via:
-   ```bash
-   curl -s https://api.fastmail.com/jmap/session \
-     -H "Authorization: Bearer $FASTMAIL_API_TOKEN" | jq '.capabilities | keys'
-   ```
+1. ✅ **Full spec audit** — 4 parallel audits covering all code vs all specs
+2. ✅ **All code fixes applied** — every audit finding addressed (254 ins, 65 del across 12 files)
+3. ✅ **CLI spec written** — `specs/cli.md`
+4. ✅ **DOCS.md written** — 5-minute explainer
+5. ✅ **Committed** — 3 commits:
+   - `db55e33` Fix audit findings: body extraction, response projection, protocol compliance
+   - `d01b949` Add CLI spec: fm binary with resource-verb command structure
+   - `e459584` Add DOCS.md and session state for continuity
+6. ✅ **Updated specs/cli.md** — organizing focus, mailbox resolution, ACE UX patterns
+   - `e907069` Update CLI spec: organizing focus, mailbox resolution, ACE UX patterns
+7. ✅ **CLI skeleton implemented** — clap subcommands, Io/OutputMode, TerminalGuard, exit codes
+   - `4dc8e45` Add CLI skeleton: fm binary with clap subcommands, Io struct, output modes
+8. ✅ **Wire CLI handlers to actions** — all stubs replaced with real action calls + output formatting
+   - 828 insertions, 130 deletions across 8 files
+   - All 16 CLI commands wired to their action structs
+   - Human mode: tables for lists, formatted headers for email body, status messages for mutations
+   - Json/Raw mode: pretty-printed JSON via `Io::json()`
+   - Spinners via `Io::progress()` for all async operations
+   - Stdin body reading for `fm emails send` when `--body` omitted
+   - Fixed `GetEmailBody` action to request `from`, `to`, `receivedAt` properties
+   - Default `emails list` to inbox when `--mailbox` omitted
 
 ## TODO — Not Started
 
 ### Immediate (this sprint)
-- [ ] **Review cycle**: User reviews `specs/cli.md` and `DOCS.md`, iterate
-- [ ] **Commit current changes**: ~250 lines of fixes + 2 new files
-- [ ] **README.md**: 30-second install/configure/use guide for regular FastMail users
-- [ ] **Verify Phase 2 JMAP**: Run curl against session endpoint
-- [ ] **Implement CLI**: Add clap, `src/cli/` module, rename binary to `fm`, wire up subcommands
+- [ ] **Mailbox resolution** — role aliases + fuzzy name matching in CLI
+  - Currently: `emails list` uses action's exact-name match; `search`/`move` pass raw input as mailbox_id
+  - Need: role alias lookup (inbox→role:inbox), prefix/substring match, interactive disambiguation via inquire
+- [ ] **Config file auth** — `~/.config/fastermail/config.toml` with 0600 perms
+- [ ] **README.md** — 30-second install/configure/use guide for regular FastMail users
+- [ ] **Verify Phase 2 JMAP** — Run curl against session endpoint
 
 ### Later
 - [ ] **Phase 2 spec rewrite**: CardDAV/CalDAV → JMAP (pending verification)
-- [ ] **Test infrastructure**: `src/testutil/mock_jmap.rs`, per-action unit tests, `tests/integration.rs` (big gap per testing.md)
+- [ ] **Test infrastructure**: mock JMAP, per-action unit tests, integration tests (big gap)
 - [ ] **Dockerfile**: Multi-stage build for distribution
 - [ ] **CI/release**: Cross-compilation for 4 targets (x86_64/aarch64 × linux/macos)
 - [ ] **Phase 2 implementation**: Contacts + calendars tools
+- [ ] **Raw output mode**: True JMAP response pass-through (currently same as Json)
 
 ## Key Decisions Made
+
 - Binary name: `fm` (short), MCP mode via `fm mcp`
 - CLI structure: resource-first then verb (`fm emails list`)
+- CLI focus: email organization/triage, not composition
+- Mailbox aliases: built-in role aliases + fuzzy name matching (not yet implemented)
+- UX libs: indicatif + inquire + console (match ACE patterns)
 - Output: human-friendly default, `--json` for scripting, `--raw` for debug
+- Auto-detect: non-TTY stdout → JSON mode
 - Auth: env var takes precedence over config file
 - No default command → show help (not MCP server)
 - Fix code for usability over raw JMAP compliance
 - Response projection: filter to spec-defined fields
-- DOCS.md for 5-min read, README for 30-sec quickstart, specs/ for implementers
-
-## Audit Reports
-
-Full audit transcripts are available at:
-- Email tools: `/private/tmp/claude-501/-Users-chakrit-Documents-chakrit-fastermail/0da03771-a783-4e90-b365-0a4cbc5dd03e/tasks/a11c2e68d8ca0cb36.output`
-- Non-email tools: `/private/tmp/claude-501/-Users-chakrit-Documents-chakrit-fastermail/0da03771-a783-4e90-b365-0a4cbc5dd03e/tasks/a6827d80a2be227aa.output`
-- Protocol & architecture: `/private/tmp/claude-501/-Users-chakrit-Documents-chakrit-fastermail/0da03771-a783-4e90-b365-0a4cbc5dd03e/tasks/ad04cb2e52e6c8563.output`
-- Phase 2 readiness: `/private/tmp/claude-501/-Users-chakrit-Documents-chakrit-fastermail/0da03771-a783-4e90-b365-0a4cbc5dd03e/tasks/a10582c403c0038ef.output`
-
-(These are in /private/tmp and may not survive reboot.)
+- Default mailbox: `emails list` defaults to inbox when `--mailbox` omitted

@@ -385,7 +385,7 @@ impl Action for GetEmailBody {
         let mut args = serde_json::json!({
             "accountId": ctx.account_id,
             "ids": [self.email_id],
-            "properties": ["id", "subject", "textBody", "htmlBody", "bodyValues"]
+            "properties": ["id", "subject", "from", "to", "receivedAt", "textBody", "htmlBody", "bodyValues"]
         });
 
         match format {

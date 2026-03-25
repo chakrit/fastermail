@@ -132,6 +132,14 @@ impl Io {
         let _ = writeln!(stdout, "{msg}");
     }
 
+    /// Serialize a JSON value to stdout (pretty-printed).
+    /// Used by Json and Raw modes. Raw currently outputs the same as Json since
+    /// actions already project fields; true raw JMAP pass-through is future work.
+    pub fn json(&self, value: &serde_json::Value) {
+        let s = serde_json::to_string_pretty(value).unwrap_or_else(|_| format!("{value}"));
+        self.data(&s);
+    }
+
     /// Print a visual separator (Human mode only).
     pub fn separator(&self) {
         if self.mode == OutputMode::Human {
