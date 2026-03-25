@@ -1,6 +1,6 @@
 # FasterMail Session State
 
-Saved: 2026-03-25 (session 9)
+Saved: 2026-03-25 (session 10, wrap 2)
 
 ## Way of Work
 
@@ -56,10 +56,19 @@ Saved: 2026-03-25 (session 9)
    - Sections: install (cargo), configure (fm setup + env var), usage (shortcuts + full commands), output formats, MCP server
    - 122 lines, scannable 30-second quickstart
 
+12. ✅ **Dotenv support** — `.env` + `.env.local` loading via dotenvy
+   - `9b6b7b2` Add .env/.env.local support via dotenvy
+   - Loads .env then .env.local at startup (local overrides base)
+   - `.env.local` gitignored, `.env` tracked for dev defaults
+
 ## TODO — Not Started
 
 ### Immediate (this sprint)
-- [ ] **Verify Phase 2 JMAP** — Run curl against session endpoint
+- [ ] **Fix dotenvy / replace with manual loader** — `dotenvy::from_filename` silently fails;
+      `.env.local` has valid `FASTMAIL_API_TOKEN=fmu1-...` but `fm config` shows "(not set)".
+      Plan: drop dotenvy crate, write a simple `load_dotenv()` in main.rs that parses
+      `KEY=VALUE` lines and calls `std::env::set_var`. Remove `dotenvy` from Cargo.toml.
+- [ ] **Verify Phase 2 JMAP** — Run curl against session endpoint (blocked on working .env)
 
 ### Later
 - [ ] **Local caching layer** — cache mailbox lists, identities, etc. to avoid repeated JMAP calls
@@ -84,3 +93,18 @@ Saved: 2026-03-25 (session 9)
 - Fix code for usability over raw JMAP compliance
 - Response projection: filter to spec-defined fields
 - Default mailbox: `emails list` defaults to inbox when `--mailbox` omitted
+
+## Communication Issues (user flagged)
+
+**Problem:** Claude has been acting without confirming first — reading files, starting edits,
+and diving into debugging without asking. The Way of Work says "confirm plan → get approval
+before starting" but Claude keeps skipping step 2.
+
+**User instruction:** "We'll tackle your communication problem first." This is the top
+priority for the next session — fix the behavior before doing any code work.
+
+**Rules to follow strictly:**
+1. State what you plan to do
+2. STOP and wait for explicit "yes" / "go" / confirmation
+3. Only then act
+4. Do NOT read files, explore code, or start debugging as part of "planning" — that IS work
