@@ -8,6 +8,7 @@ mod jmap;
 mod mcp;
 mod recorder;
 
+use std::fs;
 use std::process;
 
 use clap::Parser;
@@ -17,8 +18,8 @@ use crate::cli::Cli;
 
 fn main() {
     // Load .env then .env.local (local overrides base). Missing files are fine.
-    let _ = dotenvy::from_filename(".env");
-    let _ = dotenvy::from_filename(".env.local");
+    load_dotenv(".env");
+    load_dotenv(".env.local");
 
     logging::init();
 
@@ -70,4 +71,28 @@ fn connect() -> error::Result<Context> {
 fn run_mcp_server() -> error::Result<()> {
     let ctx = connect()?;
     mcp::server::run(ctx)
+}
+
+/// Parse a dotenv file and set env vars. Skips missing files, blank lines, and comments.
+/// Later files override earlier ones (call .env first, then .env.local).
+fn load_dotenv(path: &str) {
+    let content = match fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if let Some((key, value)) = line.split_once('=') {
+            let key = key.trim();
+            let value = value.trim();
+            if !key.is_empty() {
+                // SAFETY: called before any threads are spawned (top of main).
+                unsafe { std::env::set_var(key, value) };
+            }
+        }
+    }
 }
