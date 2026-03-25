@@ -1,6 +1,6 @@
 # FasterMail Session State
 
-Saved: 2026-03-25 (session 12)
+Saved: 2026-03-25 (session 13)
 
 ## Way of Work
 
@@ -69,21 +69,28 @@ Saved: 2026-03-25 (session 12)
 14. ✅ **Replace dotenvy with manual loader** — dropped dotenvy crate, wrote `load_dotenv()` in main.rs
    - `350aa84` Replace dotenvy with manual .env loader
 
+15. ✅ **Verify Phase 2 JMAP** — curled session endpoint, inspected capabilities
+   - **Contacts**: `urn:ietf:params:jmap:contacts` ✅ available
+   - **Calendars**: no `urn:ietf:params:jmap:calendars` ❌ (CalDAV only)
+   - **Masked email**: `https://www.fastmail.com/dev/maskedemail` ✅ bonus
+   - **Submission**: `urn:ietf:params:jmap:submission` ✅
+   - API URL: `https://api.fastmail.com/jmap/api/` (redirects from .well-known)
+
 ## TODO — Not Started
 
 ### Immediate (this sprint)
-- [ ] **Verify Phase 2 JMAP** — Run curl against session endpoint (now unblocked)
 - [ ] **Update school `general-coding` skill** — add .env convention: `.env` committed with
       non-sensitive defaults, `.env.local` gitignored for real credentials, no `.env.example` pattern
 
 ### Later
 - [ ] **Local caching layer** — cache mailbox lists, identities, etc. to avoid repeated JMAP calls
-- [ ] **Phase 2 spec rewrite**: CardDAV/CalDAV → JMAP (pending verification)
+- [ ] **Phase 2 spec rewrite**: Contacts → JMAP (verified available). Calendars → CalDAV only (no JMAP capability). Masked email also available.
 - [ ] **Test infrastructure**: mock JMAP, per-action unit tests, integration tests (big gap)
 - [ ] **Dockerfile**: Multi-stage build for distribution
 - [ ] **CI/release**: Cross-compilation for 4 targets (x86_64/aarch64 × linux/macos)
-- [ ] **Phase 2 implementation**: Contacts + calendars tools
+- [ ] **Phase 2 implementation**: Contacts (JMAP) + calendars (CalDAV or drop)
 - [ ] **Raw output mode**: True JMAP response pass-through (currently same as Json)
+- [ ] **Masked email support**: `maskedemail` capability available via FastMail extension
 
 ## Key Decisions Made
 
