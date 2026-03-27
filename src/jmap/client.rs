@@ -1,6 +1,7 @@
 use crate::error::{Error, Result};
 use crate::jmap::types::{JmapRequest, JmapResponse, MethodCall, Session};
 
+#[derive(Debug)]
 pub struct JmapClient {
     api_url: String,
     token: String,
@@ -13,9 +14,14 @@ impl JmapClient {
         let session_url = std::env::var("JMAP_SESSION_URL")
             .unwrap_or_else(|_| "https://api.fastmail.com/jmap/session".to_string());
 
+        Self::connect_to(&session_url, token)
+    }
+
+    /// Fetch the JMAP session from a specific URL and create a client.
+    pub fn connect_to(session_url: &str, token: &str) -> Result<(Self, Session)> {
         log_debug!("jmap", "fetching session from {session_url}");
 
-        let mut resp = ureq::get(&session_url)
+        let mut resp = ureq::get(session_url)
             .header("Authorization", &format!("Bearer {token}"))
             .call()?;
 
@@ -100,5 +106,112 @@ impl JmapClient {
         }
 
         Ok(resp_data)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testutil::mock_jmap::{MockJmap, TEST_ACCOUNT_ID};
+    use serde_json::json;
+
+    #[test]
+    fn session_discovery_extracts_account_id() {
+        let mock = MockJmap::start();
+
+        let (_, session) = JmapClient::connect_to(&mock.session_url(), "fake-token")
+            .expect("session discovery should succeed");
+
+        assert_eq!(session.primary_account_id(), Some(TEST_ACCOUNT_ID));
+    }
+
+    #[test]
+    fn session_discovery_extracts_api_url() {
+        let mock = MockJmap::start();
+
+        let (client, _) = JmapClient::connect_to(&mock.session_url(), "fake-token")
+            .expect("session discovery should succeed");
+
+        assert!(
+            client.api_url.starts_with(&mock.base_url()),
+            "API URL should point at mock server, got: {}",
+            client.api_url
+        );
+    }
+
+    #[test]
+    fn session_fetch_with_401_returns_error() {
+        let server = httpmock::MockServer::start();
+        server.mock(|when, then| {
+            when.method(httpmock::prelude::GET).path("/jmap/session");
+            then.status(401);
+        });
+
+        let err = JmapClient::connect_to(
+            &format!("{}/jmap/session", server.base_url()),
+            "bad-token",
+        )
+        .expect_err("401 should produce an error");
+
+        let msg = format!("{err:?}");
+        assert!(
+            msg.contains("401") || msg.contains("Http"),
+            "error should indicate auth failure: {msg}"
+        );
+    }
+
+    #[test]
+    fn call_one_returns_response_data() {
+        let mock = MockJmap::start();
+        mock.handle_method("Mailbox/get", json!({
+            "methodResponses": [
+                ["Mailbox/get", {
+                    "accountId": TEST_ACCOUNT_ID,
+                    "list": [
+                        { "id": "mbox-1", "name": "Inbox", "role": "inbox" }
+                    ]
+                }, "call-0"]
+            ]
+        }));
+
+        let (client, _) = JmapClient::connect_to(&mock.session_url(), "fake-token")
+            .expect("session should succeed");
+
+        let result = client
+            .call_one("urn:ietf:params:jmap:mail", "Mailbox/get", json!({
+                "accountId": TEST_ACCOUNT_ID,
+                "ids": null
+            }))
+            .expect("call_one should succeed");
+
+        let list = result["list"].as_array().expect("should have list");
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0]["name"], "Inbox");
+    }
+
+    #[test]
+    fn call_one_maps_jmap_error_response() {
+        let mock = MockJmap::start();
+        mock.handle_method("Email/get", json!({
+            "methodResponses": [
+                ["error", { "type": "notFound" }, "call-0"]
+            ]
+        }));
+
+        let (client, _) = JmapClient::connect_to(&mock.session_url(), "fake-token")
+            .expect("session should succeed");
+
+        let err = client
+            .call_one("urn:ietf:params:jmap:mail", "Email/get", json!({
+                "accountId": TEST_ACCOUNT_ID,
+                "ids": ["nonexistent"]
+            }))
+            .expect_err("JMAP error response should produce an error");
+
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("notFound"),
+            "error should contain JMAP error type: {msg}"
+        );
     }
 }

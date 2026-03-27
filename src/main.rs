@@ -7,6 +7,8 @@ mod error;
 mod jmap;
 mod mcp;
 mod recorder;
+#[cfg(test)]
+mod testutil;
 
 use std::fs;
 use std::process;
