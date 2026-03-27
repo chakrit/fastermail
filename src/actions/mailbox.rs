@@ -206,7 +206,7 @@ mod tests {
                 "methodResponses": [["Mailbox/get", {
                     "accountId": TEST_ACCOUNT_ID,
                     "list": [
-                        {"id": "mb1", "name": "Inbox", "role": "inbox", "totalEmails": 42, "unreadEmails": 3, "parentId": null},
+                        {"id": "mb1", "name": "Inbox", "role": "inbox", "totalEmails": 42, "unreadEmails": 3, "parentId": null, "sortOrder": 1},
                         {"id": "mb2", "name": "Sent", "role": "sent", "totalEmails": 10, "unreadEmails": 0, "parentId": null}
                     ]
                 }, "call-0"]]
@@ -233,6 +233,13 @@ mod tests {
         assert_eq!(arr[0]["role"], "inbox");
         assert_eq!(arr[1]["id"], "mb2");
         assert_eq!(arr[1]["name"], "Sent");
+
+        assert_eq!(arr[0]["totalEmails"], 42);
+        assert_eq!(arr[0]["unreadEmails"], 3);
+        assert!(arr[0]["parentId"].is_null());
+        assert_eq!(arr[1]["totalEmails"], 10);
+        assert_eq!(arr[1]["unreadEmails"], 0);
+        assert!(arr[0].get("sortOrder").is_none(), "non-LIST_FIELDS should be stripped");
     }
 
     #[test]
@@ -490,5 +497,69 @@ mod tests {
 
         assert_eq!(result["success"], true);
         assert_eq!(result["mailboxId"], "mb-del");
+    }
+
+    #[test]
+    fn manage_mailbox_rename_succeeds() {
+        let mock = MockJmap::start();
+        mock.handle_method(
+            "Mailbox/set",
+            json!({
+                "methodResponses": [["Mailbox/set", {
+                    "updated": {"mb1": null}
+                }, "call-0"]]
+            }),
+        );
+
+        let (client, _) =
+            JmapClient::connect_to(&mock.session_url(), "fake-token").expect("session");
+        let ctx = Context {
+            jmap: client,
+            account_id: TEST_ACCOUNT_ID.to_string(),
+            recorder: None,
+        };
+
+        let action = ManageMailbox {
+            action: "rename".to_string(),
+            name: "NewName".to_string(),
+            mailbox_id: "mb1".to_string(),
+            parent_id: String::new(),
+        };
+        let result = action.run(&ctx).expect("rename should succeed");
+
+        assert_eq!(result["success"], true);
+        assert_eq!(result["mailboxId"], "mb1");
+    }
+
+    #[test]
+    fn manage_mailbox_create_with_parent_id() {
+        let mock = MockJmap::start();
+        mock.handle_method(
+            "Mailbox/set",
+            json!({
+                "methodResponses": [["Mailbox/set", {
+                    "created": {"new-mailbox": {"id": "mbox-child"}}
+                }, "call-0"]]
+            }),
+        );
+
+        let (client, _) =
+            JmapClient::connect_to(&mock.session_url(), "fake-token").expect("session");
+        let ctx = Context {
+            jmap: client,
+            account_id: TEST_ACCOUNT_ID.to_string(),
+            recorder: None,
+        };
+
+        let action = ManageMailbox {
+            action: "create".to_string(),
+            name: "Child".to_string(),
+            mailbox_id: String::new(),
+            parent_id: "mbox-parent".to_string(),
+        };
+        let result = action.run(&ctx).expect("create with parent should succeed");
+
+        assert_eq!(result["success"], true);
+        assert_eq!(result["mailboxId"], "mbox-child");
     }
 }

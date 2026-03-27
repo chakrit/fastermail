@@ -104,4 +104,33 @@ mod tests {
         let result = project_fields_array(&val, &["a"]);
         assert_eq!(result, json!("hello"));
     }
+
+    #[test]
+    fn project_fields_with_empty_fields_slice() {
+        let obj = json!({"a": 1, "b": 2});
+        let result = project_fields(&obj, &[]);
+        assert_eq!(result, json!({}));
+    }
+
+    #[test]
+    fn project_fields_array_with_empty_array() {
+        let arr = json!([]);
+        let result = project_fields_array(&arr, &["a"]);
+        assert_eq!(result, json!([]));
+    }
+
+    #[test]
+    fn project_fields_array_with_non_object_elements() {
+        let arr = json!([1, "hello", null]);
+        let result = project_fields_array(&arr, &["a"]);
+        let items = result.as_array().expect("should be array");
+        assert_eq!(items.len(), 3);
+        for item in items {
+            assert_eq!(
+                item,
+                &json!({}),
+                "non-object elements should project to empty object"
+            );
+        }
+    }
 }

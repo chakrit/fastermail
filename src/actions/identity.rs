@@ -99,4 +99,25 @@ mod tests {
         assert_eq!(arr[1]["email"], "bob@example.com");
         assert!(arr[1].get("textSignature").is_none());
     }
+
+    #[test]
+    fn list_identities_returns_empty_for_no_data() {
+        let mock = MockJmap::start();
+        mock.handle_method(
+            "Identity/get",
+            json!({"methodResponses": [["Identity/get", {"list": []}, "call-0"]]}),
+        );
+
+        let (client, _) =
+            JmapClient::connect_to(&mock.session_url(), "fake-token").expect("session");
+        let ctx = Context {
+            jmap: client,
+            account_id: TEST_ACCOUNT_ID.to_string(),
+            recorder: None,
+        };
+
+        let result = ListIdentities.run(&ctx).expect("empty list should succeed");
+        let arr = result.as_array().expect("should be array");
+        assert!(arr.is_empty(), "should return empty array");
+    }
 }

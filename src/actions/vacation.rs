@@ -278,4 +278,30 @@ mod tests {
             "non-empty string should resolve to that string"
         );
     }
+
+    #[test]
+    fn set_vacation_response_includes_optional_fields() {
+        let mock = MockJmap::start();
+        mock.handle_method(
+            "VacationResponse/set",
+            json!({"methodResponses": [["VacationResponse/set", {"updated": {"singleton": null}}, "call-0"]]}),
+        );
+
+        let (client, _) =
+            JmapClient::connect_to(&mock.session_url(), "fake-token").expect("session");
+        let ctx = Context {
+            jmap: client,
+            account_id: TEST_ACCOUNT_ID.to_string(),
+            recorder: None,
+        };
+
+        let action = SetVacationResponse {
+            is_enabled: Some(true),
+            raw_args: json!({"isEnabled": true, "fromDate": "2026-06-01T00:00:00Z", "subject": "On vacation", "textBody": "I'm away"}),
+        };
+        let result = action
+            .run(&ctx)
+            .expect("set with optional fields should succeed");
+        assert_eq!(result["success"], true);
+    }
 }

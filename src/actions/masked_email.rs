@@ -465,4 +465,29 @@ mod tests {
 
         assert_eq!(result["success"], true);
     }
+
+    #[test]
+    fn list_masked_emails_returns_empty_list() {
+        let mock = MockJmap::start();
+        mock.handle_method(
+            "MaskedEmail/get",
+            json!({"methodResponses": [["MaskedEmail/get", {"list": []}, "call-0"]]}),
+        );
+
+        let (client, _) =
+            JmapClient::connect_to(&mock.session_url(), "fake-token").expect("session");
+        let ctx = Context {
+            jmap: client,
+            account_id: TEST_ACCOUNT_ID.to_string(),
+            recorder: None,
+        };
+
+        let result = ListMaskedEmails {
+            state: String::new(),
+        }
+        .run(&ctx)
+        .expect("empty list should succeed");
+        let arr = result.as_array().expect("should be array");
+        assert!(arr.is_empty(), "should return empty array");
+    }
 }
