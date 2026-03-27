@@ -188,3 +188,307 @@ impl Action for ManageMailbox {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::actions::Context;
+    use crate::jmap::client::JmapClient;
+    use crate::testutil::mock_jmap::{MockJmap, TEST_ACCOUNT_ID};
+    use serde_json::json;
+
+    #[test]
+    fn list_mailboxes_returns_all() {
+        let mock = MockJmap::start();
+        mock.handle_method(
+            "Mailbox/get",
+            json!({
+                "methodResponses": [["Mailbox/get", {
+                    "accountId": TEST_ACCOUNT_ID,
+                    "list": [
+                        {"id": "mb1", "name": "Inbox", "role": "inbox", "totalEmails": 42, "unreadEmails": 3, "parentId": null},
+                        {"id": "mb2", "name": "Sent", "role": "sent", "totalEmails": 10, "unreadEmails": 0, "parentId": null}
+                    ]
+                }, "call-0"]]
+            }),
+        );
+
+        let (client, _) =
+            JmapClient::connect_to(&mock.session_url(), "fake-token").expect("session");
+        let ctx = Context {
+            jmap: client,
+            account_id: TEST_ACCOUNT_ID.to_string(),
+            recorder: None,
+        };
+
+        let action = ListMailboxes {
+            role: String::new(),
+        };
+        let result = action.run(&ctx).expect("list should succeed");
+        let arr = result.as_array().expect("result should be array");
+
+        assert_eq!(arr.len(), 2);
+        assert_eq!(arr[0]["id"], "mb1");
+        assert_eq!(arr[0]["name"], "Inbox");
+        assert_eq!(arr[0]["role"], "inbox");
+        assert_eq!(arr[1]["id"], "mb2");
+        assert_eq!(arr[1]["name"], "Sent");
+    }
+
+    #[test]
+    fn list_mailboxes_filters_by_role() {
+        let mock = MockJmap::start();
+        mock.handle_method(
+            "Mailbox/get",
+            json!({
+                "methodResponses": [["Mailbox/get", {
+                    "accountId": TEST_ACCOUNT_ID,
+                    "list": [
+                        {"id": "mb1", "name": "Inbox", "role": "inbox", "totalEmails": 42, "unreadEmails": 3, "parentId": null},
+                        {"id": "mb2", "name": "Sent", "role": "sent", "totalEmails": 10, "unreadEmails": 0, "parentId": null}
+                    ]
+                }, "call-0"]]
+            }),
+        );
+
+        let (client, _) =
+            JmapClient::connect_to(&mock.session_url(), "fake-token").expect("session");
+        let ctx = Context {
+            jmap: client,
+            account_id: TEST_ACCOUNT_ID.to_string(),
+            recorder: None,
+        };
+
+        let action = ListMailboxes {
+            role: "inbox".to_string(),
+        };
+        let result = action.run(&ctx).expect("list should succeed");
+        let arr = result.as_array().expect("result should be array");
+
+        assert_eq!(arr.len(), 1);
+        assert_eq!(arr[0]["name"], "Inbox");
+        assert_eq!(arr[0]["role"], "inbox");
+    }
+
+    #[test]
+    fn list_mailboxes_returns_empty_when_role_not_found() {
+        let mock = MockJmap::start();
+        mock.handle_method(
+            "Mailbox/get",
+            json!({
+                "methodResponses": [["Mailbox/get", {
+                    "accountId": TEST_ACCOUNT_ID,
+                    "list": [
+                        {"id": "mb1", "name": "Inbox", "role": "inbox", "totalEmails": 42, "unreadEmails": 3, "parentId": null}
+                    ]
+                }, "call-0"]]
+            }),
+        );
+
+        let (client, _) =
+            JmapClient::connect_to(&mock.session_url(), "fake-token").expect("session");
+        let ctx = Context {
+            jmap: client,
+            account_id: TEST_ACCOUNT_ID.to_string(),
+            recorder: None,
+        };
+
+        let action = ListMailboxes {
+            role: "archive".to_string(),
+        };
+        let result = action.run(&ctx).expect("list should succeed");
+        let arr = result.as_array().expect("result should be array");
+
+        assert!(arr.is_empty());
+    }
+
+    #[test]
+    fn manage_mailbox_requires_action() {
+        let client = JmapClient::new("http://localhost:0".to_string(), "fake".to_string());
+        let ctx = Context {
+            jmap: client,
+            account_id: "test".to_string(),
+            recorder: None,
+        };
+
+        let action = ManageMailbox {
+            action: String::new(),
+            name: String::new(),
+            mailbox_id: String::new(),
+            parent_id: String::new(),
+        };
+        let err = action.run(&ctx).expect_err("should fail without action");
+
+        assert!(matches!(err, Error::InvalidParams(_)));
+    }
+
+    #[test]
+    fn manage_mailbox_create_requires_name() {
+        let client = JmapClient::new("http://localhost:0".to_string(), "fake".to_string());
+        let ctx = Context {
+            jmap: client,
+            account_id: "test".to_string(),
+            recorder: None,
+        };
+
+        let action = ManageMailbox {
+            action: "create".to_string(),
+            name: String::new(),
+            mailbox_id: String::new(),
+            parent_id: String::new(),
+        };
+        let err = action.run(&ctx).expect_err("should fail without name");
+
+        assert!(matches!(err, Error::InvalidParams(_)));
+    }
+
+    #[test]
+    fn manage_mailbox_rename_requires_mailbox_id() {
+        let client = JmapClient::new("http://localhost:0".to_string(), "fake".to_string());
+        let ctx = Context {
+            jmap: client,
+            account_id: "test".to_string(),
+            recorder: None,
+        };
+
+        let action = ManageMailbox {
+            action: "rename".to_string(),
+            name: "NewName".to_string(),
+            mailbox_id: String::new(),
+            parent_id: String::new(),
+        };
+        let err = action
+            .run(&ctx)
+            .expect_err("should fail without mailbox_id");
+
+        assert!(matches!(err, Error::InvalidParams(_)));
+    }
+
+    #[test]
+    fn manage_mailbox_rename_requires_name() {
+        let client = JmapClient::new("http://localhost:0".to_string(), "fake".to_string());
+        let ctx = Context {
+            jmap: client,
+            account_id: "test".to_string(),
+            recorder: None,
+        };
+
+        let action = ManageMailbox {
+            action: "rename".to_string(),
+            name: String::new(),
+            mailbox_id: "mb1".to_string(),
+            parent_id: String::new(),
+        };
+        let err = action.run(&ctx).expect_err("should fail without name");
+
+        assert!(matches!(err, Error::InvalidParams(_)));
+    }
+
+    #[test]
+    fn manage_mailbox_delete_requires_mailbox_id() {
+        let client = JmapClient::new("http://localhost:0".to_string(), "fake".to_string());
+        let ctx = Context {
+            jmap: client,
+            account_id: "test".to_string(),
+            recorder: None,
+        };
+
+        let action = ManageMailbox {
+            action: "delete".to_string(),
+            name: String::new(),
+            mailbox_id: String::new(),
+            parent_id: String::new(),
+        };
+        let err = action
+            .run(&ctx)
+            .expect_err("should fail without mailbox_id");
+
+        assert!(matches!(err, Error::InvalidParams(_)));
+    }
+
+    #[test]
+    fn manage_mailbox_rejects_invalid_action() {
+        let client = JmapClient::new("http://localhost:0".to_string(), "fake".to_string());
+        let ctx = Context {
+            jmap: client,
+            account_id: "test".to_string(),
+            recorder: None,
+        };
+
+        let action = ManageMailbox {
+            action: "archive".to_string(),
+            name: String::new(),
+            mailbox_id: String::new(),
+            parent_id: String::new(),
+        };
+        let err = action
+            .run(&ctx)
+            .expect_err("should reject invalid action");
+
+        assert!(matches!(err, Error::InvalidParams(_)));
+    }
+
+    #[test]
+    fn manage_mailbox_create_succeeds() {
+        let mock = MockJmap::start();
+        mock.handle_method(
+            "Mailbox/set",
+            json!({
+                "methodResponses": [["Mailbox/set", {
+                    "created": {"new-mailbox": {"id": "mbox-new"}}
+                }, "call-0"]]
+            }),
+        );
+
+        let (client, _) =
+            JmapClient::connect_to(&mock.session_url(), "fake-token").expect("session");
+        let ctx = Context {
+            jmap: client,
+            account_id: TEST_ACCOUNT_ID.to_string(),
+            recorder: None,
+        };
+
+        let action = ManageMailbox {
+            action: "create".to_string(),
+            name: "Projects".to_string(),
+            mailbox_id: String::new(),
+            parent_id: String::new(),
+        };
+        let result = action.run(&ctx).expect("create should succeed");
+
+        assert_eq!(result["success"], true);
+        assert_eq!(result["mailboxId"], "mbox-new");
+    }
+
+    #[test]
+    fn manage_mailbox_delete_succeeds() {
+        let mock = MockJmap::start();
+        mock.handle_method(
+            "Mailbox/set",
+            json!({
+                "methodResponses": [["Mailbox/set", {
+                    "destroyed": ["mb-del"]
+                }, "call-0"]]
+            }),
+        );
+
+        let (client, _) =
+            JmapClient::connect_to(&mock.session_url(), "fake-token").expect("session");
+        let ctx = Context {
+            jmap: client,
+            account_id: TEST_ACCOUNT_ID.to_string(),
+            recorder: None,
+        };
+
+        let action = ManageMailbox {
+            action: "delete".to_string(),
+            name: String::new(),
+            mailbox_id: "mb-del".to_string(),
+            parent_id: String::new(),
+        };
+        let result = action.run(&ctx).expect("delete should succeed");
+
+        assert_eq!(result["success"], true);
+        assert_eq!(result["mailboxId"], "mb-del");
+    }
+}

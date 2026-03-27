@@ -111,3 +111,171 @@ impl Action for SetVacationResponse {
         Ok(serde_json::json!({ "success": true }))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::actions::Context;
+    use crate::jmap::client::JmapClient;
+    use crate::testutil::mock_jmap::{MockJmap, TEST_ACCOUNT_ID};
+    use serde_json::json;
+
+    #[test]
+    fn get_vacation_response_returns_projected_fields() {
+        let mock = MockJmap::start();
+        mock.handle_method(
+            "VacationResponse/get",
+            json!({"methodResponses": [["VacationResponse/get", {"list": [{"isEnabled": true, "fromDate": "2026-01-01", "toDate": "2026-01-15", "subject": "OOO", "textBody": "Away", "htmlBody": "<p>Away</p>", "extraField": "ignored"}]}, "call-0"]]}),
+        );
+
+        let (client, _) =
+            JmapClient::connect_to(&mock.session_url(), "fake-token").expect("session");
+        let ctx = Context {
+            jmap: client,
+            account_id: TEST_ACCOUNT_ID.to_string(),
+            recorder: None,
+        };
+
+        let result = GetVacationResponse.run(&ctx).expect("run should succeed");
+
+        assert_eq!(result["isEnabled"], true);
+        assert_eq!(result["fromDate"], "2026-01-01");
+        assert_eq!(result["toDate"], "2026-01-15");
+        assert_eq!(result["subject"], "OOO");
+        assert_eq!(result["textBody"], "Away");
+        assert_eq!(result["htmlBody"], "<p>Away</p>");
+        assert!(result.get("extraField").is_none(), "extraField must be excluded");
+    }
+
+    #[test]
+    fn get_vacation_response_returns_empty_when_no_data() {
+        let mock = MockJmap::start();
+        mock.handle_method(
+            "VacationResponse/get",
+            json!({"methodResponses": [["VacationResponse/get", {"list": []}, "call-0"]]}),
+        );
+
+        let (client, _) =
+            JmapClient::connect_to(&mock.session_url(), "fake-token").expect("session");
+        let ctx = Context {
+            jmap: client,
+            account_id: TEST_ACCOUNT_ID.to_string(),
+            recorder: None,
+        };
+
+        let result = GetVacationResponse.run(&ctx).expect("run should succeed");
+
+        assert_eq!(result, json!({}));
+    }
+
+    #[test]
+    fn set_vacation_response_requires_is_enabled() {
+        let client = JmapClient::new("http://localhost:0".to_string(), "fake".to_string());
+        let ctx = Context {
+            jmap: client,
+            account_id: "test".to_string(),
+            recorder: None,
+        };
+
+        let action = SetVacationResponse {
+            is_enabled: None,
+            raw_args: json!({}),
+        };
+
+        let err = action.run(&ctx).expect_err("should fail without isEnabled");
+        assert!(
+            err.to_string().contains("isEnabled"),
+            "error should mention isEnabled: {err}"
+        );
+    }
+
+    #[test]
+    fn set_vacation_response_enables_successfully() {
+        let mock = MockJmap::start();
+        mock.handle_method(
+            "VacationResponse/set",
+            json!({"methodResponses": [["VacationResponse/set", {"updated": {"singleton": null}}, "call-0"]]}),
+        );
+
+        let (client, _) =
+            JmapClient::connect_to(&mock.session_url(), "fake-token").expect("session");
+        let ctx = Context {
+            jmap: client,
+            account_id: TEST_ACCOUNT_ID.to_string(),
+            recorder: None,
+        };
+
+        let action = SetVacationResponse {
+            is_enabled: Some(true),
+            raw_args: json!({"isEnabled": true}),
+        };
+
+        let result = action.run(&ctx).expect("run should succeed");
+        assert_eq!(result["success"], true);
+    }
+
+    #[test]
+    fn set_vacation_response_disables_successfully() {
+        let mock = MockJmap::start();
+        mock.handle_method(
+            "VacationResponse/set",
+            json!({"methodResponses": [["VacationResponse/set", {"updated": {"singleton": null}}, "call-0"]]}),
+        );
+
+        let (client, _) =
+            JmapClient::connect_to(&mock.session_url(), "fake-token").expect("session");
+        let ctx = Context {
+            jmap: client,
+            account_id: TEST_ACCOUNT_ID.to_string(),
+            recorder: None,
+        };
+
+        let action = SetVacationResponse {
+            is_enabled: Some(false),
+            raw_args: json!({"isEnabled": false}),
+        };
+
+        let result = action.run(&ctx).expect("run should succeed");
+        assert_eq!(result["success"], true);
+    }
+
+    #[test]
+    fn resolve_field_returns_none_for_absent() {
+        let args = json!({"other": "value"});
+        let result = SetVacationResponse::resolve_field(&args, "fromDate");
+        assert!(result.is_none(), "absent key should return None");
+    }
+
+    #[test]
+    fn resolve_field_returns_null_for_null_value() {
+        let args = json!({"fromDate": null});
+        let result = SetVacationResponse::resolve_field(&args, "fromDate");
+        assert_eq!(
+            result.expect("should be Some"),
+            serde_json::Value::Null,
+            "null value should resolve to Null"
+        );
+    }
+
+    #[test]
+    fn resolve_field_returns_null_for_empty_string() {
+        let args = json!({"subject": ""});
+        let result = SetVacationResponse::resolve_field(&args, "subject");
+        assert_eq!(
+            result.expect("should be Some"),
+            serde_json::Value::Null,
+            "empty string should resolve to Null"
+        );
+    }
+
+    #[test]
+    fn resolve_field_returns_value_for_non_empty() {
+        let args = json!({"subject": "hello"});
+        let result = SetVacationResponse::resolve_field(&args, "subject");
+        assert_eq!(
+            result.expect("should be Some"),
+            json!("hello"),
+            "non-empty string should resolve to that string"
+        );
+    }
+}
