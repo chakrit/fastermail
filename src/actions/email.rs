@@ -50,6 +50,33 @@ fn extract_body_content(email: &mut serde_json::Value) {
     }
 }
 
+/// Check an Email/set (or similar /set) response for partial failure errors.
+/// JMAP /set responses include `notCreated`, `notUpdated`, or `notDestroyed`
+/// when some objects in the batch fail. This helper surfaces the first error.
+fn check_set_errors(data: &serde_json::Value, method: &str) -> Result<()> {
+    for key in &["notCreated", "notUpdated", "notDestroyed"] {
+        if let Some(obj) = data.get(key).and_then(|v| v.as_object()) {
+            if obj.is_empty() {
+                continue;
+            }
+
+            let desc = obj
+                .values()
+                .next()
+                .and_then(|v| v.get("description"))
+                .and_then(|d| d.as_str())
+                .unwrap_or(key);
+
+            return Err(Error::Jmap {
+                method: method.to_string(),
+                message: desc.to_string(),
+            });
+        }
+    }
+
+    Ok(())
+}
+
 pub fn tools() -> Vec<Tool> {
     vec![
         Tool {
@@ -539,6 +566,15 @@ impl Action for SendEmail {
 
         let resp = ctx.jmap.call(using, method_calls)?;
 
+        // Check for draft creation failures in Email/set response.
+        if let Some((_, email_data, _)) = resp
+            .method_responses
+            .iter()
+            .find(|(m, _, _)| m == "Email/set")
+        {
+            check_set_errors(email_data, "Email/set")?;
+        }
+
         // Check for submission failures in EmailSubmission/set response.
         if let Some((_, sub_data, _)) = resp
             .method_responses
@@ -672,6 +708,8 @@ impl Action for MoveEmail {
         let data = ctx.jmap
             .call_one("urn:ietf:params:jmap:mail", "Email/set", args)?;
 
+        check_set_errors(&data, "Email/set")?;
+
         let moved = data
             .get("updated")
             .and_then(|u| u.as_object())
@@ -701,6 +739,8 @@ impl Action for DeleteEmail {
 
             let data = ctx.jmap
                 .call_one("urn:ietf:params:jmap:mail", "Email/set", args)?;
+
+            check_set_errors(&data, "Email/set")?;
 
             let deleted = data
                 .get("destroyed")
@@ -750,6 +790,8 @@ impl Action for DeleteEmail {
 
             let data = ctx.jmap
                 .call_one("urn:ietf:params:jmap:mail", "Email/set", args)?;
+
+            check_set_errors(&data, "Email/set")?;
 
             let deleted = data
                 .get("updated")
@@ -807,6 +849,8 @@ impl Action for FlagEmail {
         let data = ctx.jmap
             .call_one("urn:ietf:params:jmap:mail", "Email/set", args)?;
 
+        check_set_errors(&data, "Email/set")?;
+
         let updated = data
             .get("updated")
             .and_then(|u| u.as_object())
@@ -814,5 +858,305 @@ impl Action for FlagEmail {
             .unwrap_or(0);
 
         Ok(serde_json::json!({ "updated": updated }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::actions::Context;
+    use crate::jmap::client::JmapClient;
+    use crate::testutil::mock_jmap::{MockJmap, TEST_ACCOUNT_ID};
+    use serde_json::json;
+
+    fn validation_ctx() -> Context {
+        let client = JmapClient::new("http://localhost:0".to_string(), "fake".to_string());
+        Context {
+            jmap: client,
+            account_id: "test".to_string(),
+            recorder: None,
+        }
+    }
+
+    fn mock_ctx(mock: &MockJmap) -> Context {
+        let (client, _) =
+            JmapClient::connect_to(&mock.session_url(), "fake-token").expect("session connect");
+        Context {
+            jmap: client,
+            account_id: TEST_ACCOUNT_ID.to_string(),
+            recorder: None,
+        }
+    }
+
+    fn email_query_get_response() -> serde_json::Value {
+        json!({
+            "methodResponses": [
+                ["Email/query", {"ids": ["e001"]}, "call-0"],
+                ["Email/get", {"list": [{"id": "e001", "subject": "Hello"}]}, "call-1"]
+            ]
+        })
+    }
+
+    #[test]
+    fn get_emails_requires_mailbox_id_or_name() {
+        let ctx = validation_ctx();
+        let action = GetEmails {
+            mailbox_id: "".to_string(),
+            mailbox_name: "".to_string(),
+            limit: 10,
+            include_body: false,
+        };
+        let err = action.run(&ctx).expect_err("should fail without mailbox");
+        let msg = err.to_string();
+        assert!(msg.contains("mailboxId") || msg.contains("mailboxName"), "error should mention mailboxId: {msg}");
+    }
+
+    #[test]
+    fn get_emails_uses_mailbox_id_directly() {
+        let mock = MockJmap::start();
+        let ctx = mock_ctx(&mock);
+        mock.handle_method("Email/query", email_query_get_response());
+
+        let action = GetEmails {
+            mailbox_id: "mbox-1".to_string(),
+            mailbox_name: "".to_string(),
+            limit: 10,
+            include_body: false,
+        };
+        let result = action.run(&ctx).expect("get_emails should succeed");
+        let emails = result.as_array().expect("result should be array");
+        assert!(!emails.is_empty(), "should return at least one email");
+    }
+
+    #[test]
+    fn get_emails_defaults_limit_to_20() {
+        let mock = MockJmap::start();
+        let ctx = mock_ctx(&mock);
+        mock.handle_method("Email/query", email_query_get_response());
+
+        let action = GetEmails {
+            mailbox_id: "mbox-1".to_string(),
+            mailbox_name: "".to_string(),
+            limit: 0,
+            include_body: false,
+        };
+        let result = action.run(&ctx).expect("get_emails with limit=0 should succeed");
+        assert!(result.is_array(), "result should be array");
+    }
+
+    #[test]
+    fn search_emails_requires_at_least_one_filter() {
+        let ctx = validation_ctx();
+        let action = SearchEmails {
+            keyword: "".to_string(),
+            from: "".to_string(),
+            to: "".to_string(),
+            subject: "".to_string(),
+            mailbox_id: "".to_string(),
+            has_attachment: None,
+            after: "".to_string(),
+            before: "".to_string(),
+            limit: 10,
+            include_body: false,
+        };
+        let err = action.run(&ctx).expect_err("should fail with no filters");
+        let msg = err.to_string();
+        assert!(msg.contains("filter"), "error should mention filter: {msg}");
+    }
+
+    #[test]
+    fn search_emails_builds_keyword_filter() {
+        let mock = MockJmap::start();
+        let ctx = mock_ctx(&mock);
+        mock.handle_method("Email/query", email_query_get_response());
+
+        let action = SearchEmails {
+            keyword: "invoice".to_string(),
+            from: "".to_string(),
+            to: "".to_string(),
+            subject: "".to_string(),
+            mailbox_id: "".to_string(),
+            has_attachment: None,
+            after: "".to_string(),
+            before: "".to_string(),
+            limit: 10,
+            include_body: false,
+        };
+        let result = action.run(&ctx).expect("search with keyword should succeed");
+        assert!(result.is_array(), "result should be array");
+    }
+
+    #[test]
+    fn get_email_body_requires_email_id() {
+        let ctx = validation_ctx();
+        let action = GetEmailBody {
+            email_id: "".to_string(),
+            format: "text".to_string(),
+        };
+        let err = action.run(&ctx).expect_err("should fail without emailId");
+        let msg = err.to_string();
+        assert!(msg.contains("emailId"), "error should mention emailId: {msg}");
+    }
+
+    #[test]
+    fn get_email_body_rejects_invalid_format() {
+        let ctx = validation_ctx();
+        let action = GetEmailBody {
+            email_id: "e001".to_string(),
+            format: "xml".to_string(),
+        };
+        let err = action.run(&ctx).expect_err("should fail with invalid format");
+        let msg = err.to_string();
+        assert!(msg.contains("format"), "error should mention format: {msg}");
+    }
+
+    #[test]
+    fn get_email_body_extracts_body_content() {
+        let mock = MockJmap::start();
+        let ctx = mock_ctx(&mock);
+        mock.handle_method("Email/get", json!({
+            "methodResponses": [
+                ["Email/get", {
+                    "list": [{
+                        "id": "e001",
+                        "subject": "Test",
+                        "from": [{"email": "a@b.com"}],
+                        "to": [{"email": "c@d.com"}],
+                        "receivedAt": "2026-01-01T00:00:00Z",
+                        "textBody": [{"partId": "p1"}],
+                        "htmlBody": [{"partId": "p2"}],
+                        "bodyValues": {
+                            "p1": {"value": "plain text body"},
+                            "p2": {"value": "<p>html body</p>"}
+                        }
+                    }]
+                }, "call-0"]
+            ]
+        }));
+
+        let action = GetEmailBody {
+            email_id: "e001".to_string(),
+            format: "text".to_string(),
+        };
+        let result = action.run(&ctx).expect("get_email_body should succeed");
+        assert_eq!(result["textBody"], "plain text body");
+        assert_eq!(result["htmlBody"], "<p>html body</p>");
+        assert_eq!(result["date"], "2026-01-01T00:00:00Z");
+        assert!(result.get("bodyValues").is_none(), "bodyValues should be removed");
+    }
+
+    #[test]
+    fn send_email_requires_to() {
+        let ctx = validation_ctx();
+        let action = SendEmail {
+            to: vec![],
+            subject: "Hi".to_string(),
+            body: "Hello".to_string(),
+            cc: vec![],
+            bcc: vec![],
+            is_html: false,
+            in_reply_to: "".to_string(),
+        };
+        let err = action.run(&ctx).expect_err("should fail without to");
+        let msg = err.to_string();
+        assert!(msg.contains("to"), "error should mention to: {msg}");
+    }
+
+    #[test]
+    fn send_email_requires_subject() {
+        let ctx = validation_ctx();
+        let action = SendEmail {
+            to: vec!["a@b.com".to_string()],
+            subject: "".to_string(),
+            body: "Hello".to_string(),
+            cc: vec![],
+            bcc: vec![],
+            is_html: false,
+            in_reply_to: "".to_string(),
+        };
+        let err = action.run(&ctx).expect_err("should fail without subject");
+        let msg = err.to_string();
+        assert!(msg.contains("subject"), "error should mention subject: {msg}");
+    }
+
+    #[test]
+    fn move_email_requires_email_ids() {
+        let ctx = validation_ctx();
+        let action = MoveEmail {
+            email_ids: vec![],
+            mailbox_id: "mbox-1".to_string(),
+        };
+        let err = action.run(&ctx).expect_err("should fail without emailIds");
+        let msg = err.to_string();
+        assert!(msg.contains("emailIds"), "error should mention emailIds: {msg}");
+    }
+
+    #[test]
+    fn move_email_requires_mailbox_id() {
+        let ctx = validation_ctx();
+        let action = MoveEmail {
+            email_ids: vec!["e001".to_string()],
+            mailbox_id: "".to_string(),
+        };
+        let err = action.run(&ctx).expect_err("should fail without mailboxId");
+        let msg = err.to_string();
+        assert!(msg.contains("mailboxId"), "error should mention mailboxId: {msg}");
+    }
+
+    #[test]
+    fn delete_email_requires_email_ids() {
+        let ctx = validation_ctx();
+        let action = DeleteEmail {
+            email_ids: vec![],
+            permanent: false,
+        };
+        let err = action.run(&ctx).expect_err("should fail without emailIds");
+        let msg = err.to_string();
+        assert!(msg.contains("emailIds"), "error should mention emailIds: {msg}");
+    }
+
+    #[test]
+    fn flag_email_requires_email_ids() {
+        let ctx = validation_ctx();
+        let action = FlagEmail {
+            email_ids: vec![],
+            flag: "seen".to_string(),
+            value: true,
+        };
+        let err = action.run(&ctx).expect_err("should fail without emailIds");
+        let msg = err.to_string();
+        assert!(msg.contains("emailIds"), "error should mention emailIds: {msg}");
+    }
+
+    #[test]
+    fn flag_email_rejects_invalid_flag() {
+        let ctx = validation_ctx();
+        let action = FlagEmail {
+            email_ids: vec!["e001".to_string()],
+            flag: "invalid".to_string(),
+            value: true,
+        };
+        let err = action.run(&ctx).expect_err("should fail with invalid flag");
+        let msg = err.to_string();
+        assert!(msg.contains("invalid"), "error should mention invalid flag: {msg}");
+    }
+
+    #[test]
+    fn flag_email_maps_seen_to_keyword() {
+        let mock = MockJmap::start();
+        let ctx = mock_ctx(&mock);
+        mock.handle_method("Email/set", json!({
+            "methodResponses": [
+                ["Email/set", {"updated": {"e001": null}}, "call-0"]
+            ]
+        }));
+
+        let action = FlagEmail {
+            email_ids: vec!["e001".to_string()],
+            flag: "seen".to_string(),
+            value: true,
+        };
+        let result = action.run(&ctx).expect("flag_email should succeed");
+        assert_eq!(result["updated"], 1, "should report one updated email");
     }
 }
