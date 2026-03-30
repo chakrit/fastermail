@@ -1,91 +1,51 @@
 # FasterMail Session State
 
-Saved: 2026-03-25 (session 14)
-
-## Way of Work
-
-1. **Memory check** — restate this workflow, list tasks, identify next one
-2. **Confirm plan** — get user approval before starting
-3. **Do the work**
-4. **Self-audit** — check results against instructions/specs/conventions
-5. **Repeat audit** until no gaps remain
-6. **Prepare compaction note** — user compacts, cycle restarts
+Saved: 2026-03-30 (session 15)
 
 ## Completed Tasks
 
-1. ✅ **Full spec audit** — 4 parallel audits covering all code vs all specs
-2. ✅ **All code fixes applied** — every audit finding addressed (254 ins, 65 del across 12 files)
-3. ✅ **CLI spec written** — `specs/cli.md`
-4. ✅ **DOCS.md written** — 5-minute explainer
-5. ✅ **Committed** — 3 commits:
-   - `db55e33` Fix audit findings: body extraction, response projection, protocol compliance
-   - `d01b949` Add CLI spec: fm binary with resource-verb command structure
-   - `e459584` Add DOCS.md and session state for continuity
-6. ✅ **Updated specs/cli.md** — organizing focus, mailbox resolution, ACE UX patterns
-   - `e907069` Update CLI spec: organizing focus, mailbox resolution, ACE UX patterns
-7. ✅ **CLI skeleton implemented** — clap subcommands, Io/OutputMode, TerminalGuard, exit codes
-   - `4dc8e45` Add CLI skeleton: fm binary with clap subcommands, Io struct, output modes
-8. ✅ **Wire CLI handlers to actions** — all stubs replaced with real action calls + output formatting
-   - 828 insertions, 130 deletions across 8 files
-   - All 16 CLI commands wired to their action structs
-   - Human mode: tables for lists, formatted headers for email body, status messages for mutations
-   - Json/Raw mode: pretty-printed JSON via `Io::json()`
-   - Spinners via `Io::progress()` for all async operations
-   - Stdin body reading for `fm emails send` when `--body` omitted
-   - Fixed `GetEmailBody` action to request `from`, `to`, `receivedAt` properties
-   - Default `emails list` to inbox when `--mailbox` omitted
+1-14. See previous session state (sessions 1-14)
+15. ✅ **School .env convention** — added `## Environment Files` to `general-coding` skill
+   - PR: https://github.com/prod9/school/pull/15
+   - 12-factor rationale, `.env`/`.env.local` convention, anti-patterns (`.env.example`, `.env.production`)
+   - School cache branch: `ace/env-convention`
 
-9. ✅ **Mailbox resolution** — role aliases, fuzzy name matching, interactive disambiguation
-   - New `src/cli/resolve.rs` with `resolve_mailbox()` function
-   - Resolution: role alias → exact name → prefix → substring (case-insensitive)
-   - Multiple matches: `inquire::Select` in Human mode, error with candidates in Json/Raw
-   - Wired into `emails list`, `search --mailbox`, `move --to`
-   - 8 unit tests for matching logic
-   - MCP path unchanged (still uses action's `mailbox_name` field)
+16. ✅ **Test infrastructure** — MockJmap + JMAP client tests
+   - `956e56d` Add test infrastructure with MockJmap and JMAP client tests
+   - `src/testutil/mock_jmap.rs`: MockJmap builder with default FastMail session, handle_method
+   - Refactored `JmapClient::connect` → `connect_to(url, token)` for URL injection
+   - 5 JMAP client tests (session discovery, auth error, call_one success/error)
 
-10. ✅ **Config file auth** — `~/.config/fastermail/config.toml` with 0600 perms
-   - `4b89853` Add config file auth
-   - New `src/config.rs`: resolve_token (env > config file), write_config, 0600 perms check
-   - `fm config` — prints config path, token source, masked token (human + JSON)
-   - `fm setup` — interactive inquire prompt, writes config, verifies connection
-   - Updated `connect()` to use `config::resolve_token()`
-   - 5 unit tests (parsing, path, permissions)
+17. ✅ **Production bug fix: JMAP /set partial failure checks**
+   - `92c8528` Add JMAP /set partial failure checks, remove stale dead_code attr
+   - New `check_set_errors()` helper checks notCreated/notUpdated/notDestroyed
+   - Fixed MoveEmail, DeleteEmail (both paths), FlagEmail, SendEmail
+   - Previously these silently ignored partial failures
+   - Also removed stale `#[allow(dead_code)]` on `jsonrpc` field in mcp/types.rs
 
-11. ✅ **README.md** — install/configure/usage guide for FastMail users
-   - `ffdc8c3` Add README: install, configure, usage guide for FastMail users
-   - Sections: install (cargo), configure (fm setup + env var), usage (shortcuts + full commands), output formats, MCP server
-   - 122 lines, scannable 30-second quickstart
+18. ✅ **Full unit test coverage for all actions**
+   - `7094aed` Add unit tests for all action modules
+   - `18f3c70` Complete test coverage from audit findings
+   - 107 tests total, all passing in 0.04s
+   - Coverage: email (25), mailbox (13), masked_email (10), vacation (10),
+     identity (2), mod helpers (8), JMAP client (5), MCP handler (10), MCP types (5),
+     CLI resolve (8), config (5), JMAP types (3)
 
-12. ✅ **Dotenv support** — `.env` + `.env.local` loading via dotenvy
-   - `9b6b7b2` Add .env/.env.local support via dotenvy
-   - Loads .env then .env.local at startup (local overrides base)
-   - `.env.local` gitignored, `.env` tracked for dev defaults
-
-13. ✅ **Communication prefs in CLAUDE.md** — ported from ACE project
-   - `ecdf710` Add communication prefs to CLAUDE.md, update session state
-   - Sections: Communication Style, Workflow (edit protocol, never-assume), Metrics, Response Completion
-   - User also wants school `general-coding` skill updated with .env convention (see pending)
-
-14. ✅ **Replace dotenvy with manual loader** — dropped dotenvy crate, wrote `load_dotenv()` in main.rs
-   - `350aa84` Replace dotenvy with manual .env loader
-
-15. ✅ **Verify Phase 2 JMAP** — curled session endpoint, inspected capabilities
-16. ✅ **Drop non-JMAP specs** — deleted 6 calendar/event spec files, updated 5 spec references
-   - **Contacts**: `urn:ietf:params:jmap:contacts` ✅ available
-   - **Calendars**: no `urn:ietf:params:jmap:calendars` ❌ (CalDAV only)
-   - **Masked email**: `https://www.fastmail.com/dev/maskedemail` ✅ bonus
-   - **Submission**: `urn:ietf:params:jmap:submission` ✅
-   - API URL: `https://api.fastmail.com/jmap/api/` (redirects from .well-known)
+19. ✅ **Full codebase audit** — 5 parallel audits covering:
+   - JMAP client + types (ureq v3 confirmed auto-throws on 4xx/5xx)
+   - MCP server + handler (clean — no panics, full protocol compliance)
+   - Actions production code (found /set error handling gaps → fixed in #17)
+   - CLI + config + main (clean — WIP dead code in io.rs is signal handling prep)
+   - Specs vs implementation (mostly aligned; integration tests still missing)
 
 ## TODO — Not Started
 
-### Immediate (this sprint)
-- [ ] **Update school `general-coding` skill** — add .env convention: `.env` committed with
-      non-sensitive defaults, `.env.local` gitignored for real credentials, no `.env.example` pattern
+### Immediate
+- [ ] **Integration tests** (`tests/integration.rs`) — spawn binary, pipe JSON-RPC, verify
+      end-to-end MCP handshake + tools/list + tools/call. Spec exists in specs/testing.md §6.
 
 ### Later
-- [ ] **Local caching layer** — cache mailbox lists, identities, etc. to avoid repeated JMAP calls
-- [ ] **Test infrastructure**: mock JMAP, per-action unit tests, integration tests (big gap)
+- [ ] **Local caching layer** — cache mailbox lists, identities to avoid repeated JMAP calls
 - [ ] **Dockerfile**: Multi-stage build for distribution
 - [ ] **CI/release**: Cross-compilation for 4 targets (x86_64/aarch64 × linux/macos)
 - [ ] **Phase 2 implementation**: Contacts (JMAP, verified available)
@@ -94,6 +54,7 @@ Saved: 2026-03-25 (session 14)
 
 ### Dropped
 - ~~Calendars~~ — FastMail has no `jmap:calendars` capability (CalDAV only)
+- ~~Update school general-coding skill with .env convention~~ — done, PR #15
 
 ## Key Decisions Made
 
@@ -106,21 +67,12 @@ Saved: 2026-03-25 (session 14)
 - Auto-detect: non-TTY stdout → JSON mode
 - Auth: env var takes precedence over config file
 - No default command → show help (not MCP server)
-- Fix code for usability over raw JMAP compliance
 - Response projection: filter to spec-defined fields
-- Default mailbox: `emails list` defaults to inbox when `--mailbox` omitted
+- Test pattern: MockJmap wrapping httpmock, connect_to for URL injection, JmapClient::new for offline validation tests
+- ureq v3 auto-throws on 4xx/5xx — no manual status check needed
 
-## Communication Issues (user flagged)
+## Audit Notes (session 15)
 
-**Problem:** Claude has been acting without confirming first — reading files, starting edits,
-and diving into debugging without asking. The Way of Work says "confirm plan → get approval
-before starting" but Claude keeps skipping step 2.
-
-**User instruction:** "We'll tackle your communication problem first." This is the top
-priority for the next session — fix the behavior before doing any code work.
-
-**Rules to follow strictly:**
-1. State what you plan to do
-2. STOP and wait for explicit "yes" / "go" / confirmation
-3. Only then act
-4. Do NOT read files, explore code, or start debugging as part of "planning" — that IS work
+- cli/io.rs dead code (TerminalGuard, GUARD_ACTIVE, Io::error) is WIP for signal handling — keep
+- general-coding skill was restructured upstream (Design/Dependencies split into references/) — noted
+- School cache still on ace/env-convention branch — ACE auto-switches clean caches back to main
