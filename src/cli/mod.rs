@@ -1,3 +1,4 @@
+pub mod contacts;
 pub mod emails;
 pub mod identities;
 pub mod io;
@@ -62,6 +63,12 @@ enum Command {
     MaskedEmails {
         #[command(subcommand)]
         action: masked_emails::MaskedEmailCommand,
+    },
+
+    /// Manage contacts
+    Contacts {
+        #[command(subcommand)]
+        action: contacts::ContactCommand,
     },
 
     /// Print current configuration
@@ -139,6 +146,7 @@ impl Cli {
     fn dispatch(cmd: Command, ctx: &Context, io: &Io) -> crate::error::Result<()> {
         match cmd {
             Command::Mcp | Command::Config | Command::Setup => unreachable!(),
+            Command::Contacts { action } => contacts::run(action, ctx, io),
 
             Command::Emails { action } => emails::run(action, ctx, io),
             Command::Mailboxes { action } => mailboxes::run(action, ctx, io),

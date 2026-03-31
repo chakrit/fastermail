@@ -39,7 +39,13 @@ Saved: 2026-03-30 (session 16)
    - JSContact flattening layer: translates RFC 9553 structures ↔ simple MCP params
    - Wired into MCP handler dispatch (handler.rs)
    - 26 new tests (133 total), all passing in 0.04s
-   - MCP tools registered, CLI handlers still TODO
+   - MCP tools registered
+
+21. ✅ **Contact CLI handlers**
+   - New `src/cli/contacts.rs`: 6 subcommands (list, search, create, update, delete, address-books)
+   - `parse_typed_values()` for "work:a@b.com" / "a@b.com" CLI syntax
+   - Updated cli.md spec with contact command docs
+   - 139 tests total (6 new parse_typed_values tests)
 
 19. ✅ **Full codebase audit** — 5 parallel audits covering:
    - JMAP client + types (ureq v3 confirmed auto-throws on 4xx/5xx)
@@ -51,7 +57,6 @@ Saved: 2026-03-30 (session 16)
 ## TODO — Not Started
 
 ### Immediate
-- [ ] **Contact CLI handlers** — wire contact actions into CLI (`fm contacts list`, etc.)
 - [ ] **Refactor `extract_body_content`** — the nested `if let Some` pyramid in email.rs
       needs a helper to extract body part values cleanly (e.g. `resolve_body_part(body_values, parts)`)
 - [ ] **Integration tests** (`tests/integration.rs`) — spawn binary, pipe JSON-RPC, verify

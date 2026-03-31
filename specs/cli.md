@@ -64,6 +64,14 @@ fm vacation set             Enable/disable/update vacation auto-reply
 fm masked-emails list       List masked email addresses
 fm masked-emails create     Create a new masked email address
 fm masked-emails update     Enable/disable/delete a masked email
+
+# Contacts (Phase 2)
+fm contacts list            List contacts
+fm contacts search          Search contacts
+fm contacts create          Create a new contact
+fm contacts update          Update a contact
+fm contacts delete          Delete a contact
+fm contacts address-books   List address books
 ```
 
 ### Top-Level Shortcuts
@@ -428,6 +436,70 @@ Options:
       --state <STATE>        enabled, disabled, or deleted
 ```
 
+#### `fm contacts list`
+
+```
+fm contacts list [OPTIONS]
+
+Options:
+      --address-book <ID>    Filter by address book ID
+  -n, --limit <N>            Max results (default 50)
+      --json                 JSON output
+```
+
+#### `fm contacts search`
+
+```
+fm contacts search <QUERY> [OPTIONS]
+
+Options:
+  -n, --limit <N>            Max results (default 20)
+      --json                 JSON output
+```
+
+#### `fm contacts create`
+
+```
+fm contacts create <NAME> [OPTIONS]
+
+Options:
+      --email <ADDR>         Email (repeatable: "work:a@b.com" or "a@b.com")
+      --phone <NUMBER>       Phone (repeatable: "work:+1234" or "+1234")
+      --company <TEXT>       Organization name
+      --notes <TEXT>         Free-text notes
+      --address-book <ID>   Target address book ID
+```
+
+#### `fm contacts update`
+
+```
+fm contacts update <CONTACT_ID> [OPTIONS]
+
+At least one field is required.
+
+Options:
+      --name <TEXT>          Updated full name
+      --email <ADDR>         Updated emails (replaces all; repeatable)
+      --phone <NUMBER>       Updated phones (replaces all; repeatable)
+      --company <TEXT>       Updated organization name
+      --notes <TEXT>         Updated notes
+```
+
+#### `fm contacts delete`
+
+```
+fm contacts delete <CONTACT_ID>
+```
+
+#### `fm contacts address-books`
+
+```
+fm contacts address-books [OPTIONS]
+
+Options:
+      --json                 JSON output
+```
+
 ## Implementation
 
 ### Dependencies
@@ -453,6 +525,7 @@ src/
     identities.rs      Identity subcommand handlers
     vacation.rs        Vacation subcommand handlers
     masked_emails.rs   Masked email subcommand handlers
+    contacts.rs        Contact subcommand handlers + typed-value parsing
   actions/             (existing — shared with MCP)
   jmap/                (existing — shared with MCP)
   mcp/                 (existing — MCP server)
