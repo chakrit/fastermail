@@ -336,6 +336,12 @@ mod tests {
         assert!(tool_names.contains(&"get_vacation_response"));
         assert!(tool_names.contains(&"list_identities"));
         assert!(tool_names.contains(&"list_masked_emails"));
+        assert!(tool_names.contains(&"list_address_books"));
+        assert!(tool_names.contains(&"get_contacts"));
+        assert!(tool_names.contains(&"search_contacts"));
+        assert!(tool_names.contains(&"create_contact"));
+        assert!(tool_names.contains(&"update_contact"));
+        assert!(tool_names.contains(&"delete_contact"));
     }
 
     #[test]
@@ -463,6 +469,81 @@ mod tests {
         assert!(
             msg.contains("format"),
             "error should mention invalid format: {msg}"
+        );
+    }
+
+    #[test]
+    fn json_array_param_extracts_array() {
+        let args = serde_json::json!({
+            "emails": [{"address": "a@b.com"}, {"address": "c@d.com"}]
+        });
+        let result = json_array_param(&args, "emails");
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0]["address"], "a@b.com");
+        assert!(json_array_param(&args, "missing").is_empty());
+    }
+
+    #[test]
+    fn dispatch_search_contacts_requires_query() {
+        let err = dispatch_tool(
+            "search_contacts",
+            &serde_json::json!({}),
+            &test_ctx(),
+        );
+
+        assert!(err.is_err());
+        let msg = err.expect_err("should be error").to_string();
+        assert!(
+            msg.contains("query"),
+            "error should mention missing query: {msg}"
+        );
+    }
+
+    #[test]
+    fn dispatch_create_contact_requires_name() {
+        let err = dispatch_tool(
+            "create_contact",
+            &serde_json::json!({}),
+            &test_ctx(),
+        );
+
+        assert!(err.is_err());
+        let msg = err.expect_err("should be error").to_string();
+        assert!(
+            msg.contains("name"),
+            "error should mention missing name: {msg}"
+        );
+    }
+
+    #[test]
+    fn dispatch_delete_contact_requires_contact_id() {
+        let err = dispatch_tool(
+            "delete_contact",
+            &serde_json::json!({}),
+            &test_ctx(),
+        );
+
+        assert!(err.is_err());
+        let msg = err.expect_err("should be error").to_string();
+        assert!(
+            msg.contains("contactId"),
+            "error should mention missing contactId: {msg}"
+        );
+    }
+
+    #[test]
+    fn dispatch_update_contact_requires_fields() {
+        let err = dispatch_tool(
+            "update_contact",
+            &serde_json::json!({ "contactId": "c1" }),
+            &test_ctx(),
+        );
+
+        assert!(err.is_err());
+        let msg = err.expect_err("should be error").to_string();
+        assert!(
+            msg.contains("at least one field"),
+            "error should mention missing fields: {msg}"
         );
     }
 

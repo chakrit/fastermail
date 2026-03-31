@@ -1167,6 +1167,222 @@ mod tests {
     }
 
     #[test]
+    fn get_contacts_returns_empty_list() {
+        let mock = MockJmap::start();
+        mock.handle_method(
+            "ContactCard/query",
+            json!({
+                "methodResponses": [
+                    ["ContactCard/query", { "ids": [] }, "call-0"],
+                    ["ContactCard/get", { "list": [] }, "call-1"]
+                ]
+            }),
+        );
+
+        let (client, _) =
+            JmapClient::connect_to(&mock.session_url(), "fake-token").expect("session");
+        let ctx = Context {
+            jmap: client,
+            account_id: TEST_ACCOUNT_ID.to_string(),
+            recorder: None,
+        };
+
+        let result = GetContacts {
+            address_book_id: "ab1".to_string(),
+            limit: 10,
+        }
+        .run(&ctx)
+        .expect("run");
+
+        let arr = result.as_array().expect("array");
+        assert!(arr.is_empty());
+    }
+
+    #[test]
+    fn flatten_contact_with_no_emails_phones_orgs() {
+        let card = json!({
+            "id": "c-sparse",
+            "name": { "full": "Sparse Contact" },
+            "addressBookIds": { "ab1": true },
+        });
+        let flat = flatten_contact(&card);
+        assert_eq!(flat["id"], "c-sparse");
+        assert_eq!(flat["name"], "Sparse Contact");
+        assert!(flat["emails"].as_array().expect("emails").is_empty());
+        assert!(flat["phones"].as_array().expect("phones").is_empty());
+        assert_eq!(flat["company"], "");
+    }
+
+    #[test]
+    fn build_email_map_empty_input() {
+        let map = build_email_map(&[]);
+        let obj = map.as_object().expect("should be object");
+        assert!(obj.is_empty());
+    }
+
+    #[test]
+    fn build_phone_map_empty_input() {
+        let map = build_phone_map(&[]);
+        let obj = map.as_object().expect("should be object");
+        assert!(obj.is_empty());
+    }
+
+    #[test]
+    fn update_contact_clears_company_with_null() {
+        let mock = MockJmap::start();
+        mock.handle_method(
+            "ContactCard/set",
+            json!({
+                "methodResponses": [["ContactCard/set", {
+                    "updated": { "c1": null }
+                }, "call-0"]]
+            }),
+        );
+
+        let (client, _) =
+            JmapClient::connect_to(&mock.session_url(), "fake-token").expect("session");
+        let ctx = Context {
+            jmap: client,
+            account_id: TEST_ACCOUNT_ID.to_string(),
+            recorder: None,
+        };
+
+        let result = UpdateContact {
+            contact_id: "c1".to_string(),
+            name: String::new(),
+            emails: Vec::new(),
+            phones: Vec::new(),
+            company: String::new(),
+            notes: String::new(),
+            has_emails: false,
+            has_phones: false,
+            has_company: true,
+            has_notes: true,
+        }
+        .run(&ctx)
+        .expect("clearing fields should succeed");
+
+        assert_eq!(result["success"], true);
+    }
+
+    #[test]
+    fn update_contact_with_emails_and_phones() {
+        let mock = MockJmap::start();
+        mock.handle_method(
+            "ContactCard/set",
+            json!({
+                "methodResponses": [["ContactCard/set", {
+                    "updated": { "c1": null }
+                }, "call-0"]]
+            }),
+        );
+
+        let (client, _) =
+            JmapClient::connect_to(&mock.session_url(), "fake-token").expect("session");
+        let ctx = Context {
+            jmap: client,
+            account_id: TEST_ACCOUNT_ID.to_string(),
+            recorder: None,
+        };
+
+        let result = UpdateContact {
+            contact_id: "c1".to_string(),
+            name: String::new(),
+            emails: vec![json!({"type": "work", "address": "new@example.com"})],
+            phones: vec![json!({"type": "private", "number": "+9999"})],
+            company: String::new(),
+            notes: String::new(),
+            has_emails: true,
+            has_phones: true,
+            has_company: false,
+            has_notes: false,
+        }
+        .run(&ctx)
+        .expect("update with emails/phones should succeed");
+
+        assert_eq!(result["success"], true);
+    }
+
+    #[test]
+    fn update_contact_surfaces_set_error() {
+        let mock = MockJmap::start();
+        mock.handle_method(
+            "ContactCard/set",
+            json!({
+                "methodResponses": [["ContactCard/set", {
+                    "notUpdated": {
+                        "c1": {
+                            "type": "notFound",
+                            "description": "contact not found"
+                        }
+                    }
+                }, "call-0"]]
+            }),
+        );
+
+        let (client, _) =
+            JmapClient::connect_to(&mock.session_url(), "fake-token").expect("session");
+        let ctx = Context {
+            jmap: client,
+            account_id: TEST_ACCOUNT_ID.to_string(),
+            recorder: None,
+        };
+
+        let err = UpdateContact {
+            contact_id: "c1".to_string(),
+            name: "X".to_string(),
+            emails: Vec::new(),
+            phones: Vec::new(),
+            company: String::new(),
+            notes: String::new(),
+            has_emails: false,
+            has_phones: false,
+            has_company: false,
+            has_notes: false,
+        }
+        .run(&ctx)
+        .expect_err("should surface notUpdated error");
+
+        let msg = err.to_string();
+        assert!(msg.contains("contact not found"), "error: {msg}");
+    }
+
+    #[test]
+    fn delete_contact_surfaces_set_error() {
+        let mock = MockJmap::start();
+        mock.handle_method(
+            "ContactCard/set",
+            json!({
+                "methodResponses": [["ContactCard/set", {
+                    "notDestroyed": {
+                        "c1": {
+                            "type": "notFound",
+                            "description": "contact not found"
+                        }
+                    }
+                }, "call-0"]]
+            }),
+        );
+
+        let (client, _) =
+            JmapClient::connect_to(&mock.session_url(), "fake-token").expect("session");
+        let ctx = Context {
+            jmap: client,
+            account_id: TEST_ACCOUNT_ID.to_string(),
+            recorder: None,
+        };
+
+        let err = DeleteContact {
+            contact_id: "c1".to_string(),
+        }
+        .run(&ctx)
+        .expect_err("should surface notDestroyed error");
+
+        let msg = err.to_string();
+        assert!(msg.contains("contact not found"), "error: {msg}");
+    }
+
+    #[test]
     fn create_contact_surfaces_set_error() {
         let mock = MockJmap::start();
         mock.handle_method(
