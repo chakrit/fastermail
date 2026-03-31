@@ -1,4 +1,4 @@
-use crate::actions::{self, email, identity, mailbox, masked_email, vacation, Action, Context};
+use crate::actions::{self, contact, email, identity, mailbox, masked_email, vacation, Action, Context};
 use crate::error::Error;
 use crate::mcp::types::{
     InitializeParams, InitializeResult, ServerCapabilities, ServerInfo, ToolCallParams,
@@ -211,6 +211,56 @@ fn dispatch_tool(
             };
             action.run(ctx)
         }
+        "list_address_books" => {
+            let action = contact::ListAddressBooks;
+            action.run(ctx)
+        }
+        "get_contacts" => {
+            let action = contact::GetContacts {
+                address_book_id: str_param(args, "addressBookId"),
+                limit: u32_param(args, "limit"),
+            };
+            action.run(ctx)
+        }
+        "search_contacts" => {
+            let action = contact::SearchContacts {
+                query: str_param(args, "query"),
+                limit: u32_param(args, "limit"),
+            };
+            action.run(ctx)
+        }
+        "create_contact" => {
+            let action = contact::CreateContact {
+                name: str_param(args, "name"),
+                emails: json_array_param(args, "emails"),
+                phones: json_array_param(args, "phones"),
+                company: str_param(args, "company"),
+                notes: str_param(args, "notes"),
+                address_book_id: str_param(args, "addressBookId"),
+            };
+            action.run(ctx)
+        }
+        "update_contact" => {
+            let action = contact::UpdateContact {
+                contact_id: str_param(args, "contactId"),
+                name: str_param(args, "name"),
+                emails: json_array_param(args, "emails"),
+                phones: json_array_param(args, "phones"),
+                company: str_param(args, "company"),
+                notes: str_param(args, "notes"),
+                has_emails: args.get("emails").is_some(),
+                has_phones: args.get("phones").is_some(),
+                has_company: args.get("company").is_some(),
+                has_notes: args.get("notes").is_some(),
+            };
+            action.run(ctx)
+        }
+        "delete_contact" => {
+            let action = contact::DeleteContact {
+                contact_id: str_param(args, "contactId"),
+            };
+            action.run(ctx)
+        }
         _ => Err(Error::InvalidParams(format!("unknown tool: {name}"))),
     }
 }
@@ -230,6 +280,13 @@ fn u32_param(args: &serde_json::Value, key: &str) -> u32 {
 
 fn bool_param(args: &serde_json::Value, key: &str) -> bool {
     args.get(key).and_then(|v| v.as_bool()).unwrap_or(false)
+}
+
+fn json_array_param(args: &serde_json::Value, key: &str) -> Vec<serde_json::Value> {
+    args.get(key)
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default()
 }
 
 fn str_array_param(args: &serde_json::Value, key: &str) -> Vec<String> {

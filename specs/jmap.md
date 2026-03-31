@@ -48,5 +48,15 @@ Bearer token in the `Authorization` header for all requests. The token format is
 | `urn:ietf:params:jmap:vacationresponse`     | Vacation Response |
 | `https://www.fastmail.com/dev/maskedemail`  | Masked Email (FastMail-specific) |
 
-**Phase 2** (verified available, not yet implemented):
-- `urn:ietf:params:jmap:contacts` — Contacts
+### Phase 2
+
+| Capability URI                              | Domain     |
+|---------------------------------------------|------------|
+| `urn:ietf:params:jmap:contacts`             | Contacts (RFC 9610, JSContact RFC 9553) |
+
+**JMAP Contacts methods:** `AddressBook/get`, `ContactCard/get`, `ContactCard/query`,
+`ContactCard/set`.
+
+**JSContact flattening:** ContactCard uses JSContact structures (RFC 9553) — names are
+objects with components, emails/phones are `Id[T]` maps. The action layer translates
+between flat MCP tool params and JSContact objects. See individual tool specs for mapping.

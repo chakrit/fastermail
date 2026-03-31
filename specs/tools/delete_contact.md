@@ -1,19 +1,17 @@
 # delete_contact
 
-**Phase 2 — CardDAV** (FastMail does not yet expose contacts via JMAP)
-
 Delete a contact.
 
 ## Parameters
 
-| Param      | Type   | Required | Description |
-|------------|--------|----------|-------------|
-| `contactId`| string | yes      | Contact ID  |
+| Param       | Type   | Required | Description |
+|-------------|--------|----------|-------------|
+| `contactId` | string | yes      | Contact ID  |
 
-## Protocol
+## JMAP
 
-**CardDAV:** DELETE the vCard resource.
-**Future JMAP:** `ContactCard/set` (destroy)
+**Capability:** `urn:ietf:params:jmap:contacts`
+**Method:** `ContactCard/set` (destroy)
 
 ## Returns
 
@@ -24,5 +22,5 @@ Delete a contact.
 ## Error Cases
 
 - Missing `contactId` → `isError: true`, "contactId is required".
-- Contact not found → `isError: true`, "contact not found: {id}".
-- CardDAV/JMAP error → `isError: true` with error message.
+- Contact not found → JMAP `notFound` error → `isError: true`, "contact not found: {id}".
+- JMAP error → `isError: true` with JMAP error message.

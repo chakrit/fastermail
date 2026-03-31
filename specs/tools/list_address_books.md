@@ -1,28 +1,27 @@
 # list_address_books
 
-**Phase 2 — CardDAV** (FastMail does not yet expose contacts via JMAP)
-
 List all address books.
 
 ## Parameters
 
 None.
 
-## Protocol
+## JMAP
 
-**CardDAV:** PROPFIND on the addressbook-home-set URL.
-**Future JMAP:** `AddressBook/get`
+**Capability:** `urn:ietf:params:jmap:contacts`
+**Method:** `AddressBook/get`
 
 ## Returns
 
 Array of address books:
 
-| Field       | Type    | Description        |
-|-------------|---------|--------------------|
-| `id`        | string  | Address book ID    |
-| `name`      | string  | Display name       |
-| `isDefault` | boolean | Default address book |
+| Field         | Type    | Description          |
+|---------------|---------|----------------------|
+| `id`          | string  | Address book ID      |
+| `name`        | string  | Display name         |
+| `description` | string  | Description or null  |
+| `isDefault`   | boolean | Default address book |
 
 ## Error Cases
 
-- CardDAV/JMAP error → `isError: true` with error message.
+- JMAP error → `isError: true` with JMAP error message.

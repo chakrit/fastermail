@@ -1,6 +1,6 @@
 # FasterMail Session State
 
-Saved: 2026-03-30 (session 15)
+Saved: 2026-03-30 (session 16)
 
 ## Completed Tasks
 
@@ -31,6 +31,16 @@ Saved: 2026-03-30 (session 15)
      identity (2), mod helpers (8), JMAP client (5), MCP handler (10), MCP types (5),
      CLI resolve (8), config (5), JMAP types (3)
 
+20. ✅ **Phase 2: Contact specs + action module**
+   - Updated 6 contact tool specs from CardDAV stubs to JMAP (RFC 9610/9553)
+   - Updated jmap.md and tools/README.md for Phase 2 contacts
+   - New `src/actions/contact.rs`: 6 actions (ListAddressBooks, GetContacts,
+     SearchContacts, CreateContact, UpdateContact, DeleteContact)
+   - JSContact flattening layer: translates RFC 9553 structures ↔ simple MCP params
+   - Wired into MCP handler dispatch (handler.rs)
+   - 26 new tests (133 total), all passing in 0.04s
+   - MCP tools registered, CLI handlers still TODO
+
 19. ✅ **Full codebase audit** — 5 parallel audits covering:
    - JMAP client + types (ureq v3 confirmed auto-throws on 4xx/5xx)
    - MCP server + handler (clean — no panics, full protocol compliance)
@@ -41,6 +51,9 @@ Saved: 2026-03-30 (session 15)
 ## TODO — Not Started
 
 ### Immediate
+- [ ] **Contact CLI handlers** — wire contact actions into CLI (`fm contacts list`, etc.)
+- [ ] **Refactor `extract_body_content`** — the nested `if let Some` pyramid in email.rs
+      needs a helper to extract body part values cleanly (e.g. `resolve_body_part(body_values, parts)`)
 - [ ] **Integration tests** (`tests/integration.rs`) — spawn binary, pipe JSON-RPC, verify
       end-to-end MCP handshake + tools/list + tools/call. Spec exists in specs/testing.md §6.
 
@@ -48,7 +61,6 @@ Saved: 2026-03-30 (session 15)
 - [ ] **Local caching layer** — cache mailbox lists, identities to avoid repeated JMAP calls
 - [ ] **Dockerfile**: Multi-stage build for distribution
 - [ ] **CI/release**: Cross-compilation for 4 targets (x86_64/aarch64 × linux/macos)
-- [ ] **Phase 2 implementation**: Contacts (JMAP, verified available)
 - [ ] **Raw output mode**: True JMAP response pass-through (currently same as Json)
 - [ ] **Masked email support**: `maskedemail` capability available via FastMail extension
 

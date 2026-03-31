@@ -40,7 +40,7 @@ snake_case. Parameters use camelCase (matching JMAP conventions in the MCP schem
 | `create_masked_email` | Create a new masked email address | [create_masked_email.md](create_masked_email.md) |
 | `update_masked_email` | Enable/disable/delete a masked email | [update_masked_email.md](update_masked_email.md) |
 
-## Phase 2 — Contacts (JMAP)
+## Phase 2 — Contacts (JMAP, `urn:ietf:params:jmap:contacts`)
 
 | Tool | Description | Spec |
 |------|-------------|------|

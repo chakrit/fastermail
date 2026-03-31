@@ -1,3 +1,4 @@
+pub mod contact;
 pub mod email;
 pub mod identity;
 pub mod mailbox;
@@ -55,6 +56,7 @@ pub fn tool_definitions() -> Vec<Tool> {
     tools.extend(vacation::tools());
     tools.extend(identity::tools());
     tools.extend(masked_email::tools());
+    tools.extend(contact::tools());
 
     tools
 }
