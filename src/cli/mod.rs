@@ -312,8 +312,29 @@ impl Cli {
 
 /// Mask a token for display: show first 8 chars + "..." + last 4 chars.
 fn mask_token(token: &str) -> String {
-    if token.len() <= 12 {
-        return "*".repeat(token.len());
+    let count = token.chars().count();
+    if count <= 12 {
+        return "*".repeat(count);
     }
-    format!("{}...{}", &token[..8], &token[token.len() - 4..])
+
+    let head: String = token.chars().take(8).collect();
+    let tail: String = token.chars().skip(count - 4).collect();
+    format!("{head}...{tail}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mask_token_handles_multibyte() {
+        // Byte indexing at 8 / len-4 would panic on multibyte chars.
+        let masked = mask_token("café-tokénè-secrét-xyz");
+        assert_eq!(masked, "café-tok...-xyz");
+    }
+
+    #[test]
+    fn mask_token_stars_short_tokens() {
+        assert_eq!(mask_token("short"), "*****");
+    }
 }

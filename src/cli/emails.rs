@@ -459,9 +459,27 @@ fn truncate_date(s: &str) -> String {
 
 /// Truncate a string to max length, appending "…" if truncated.
 fn truncate(s: &str, max: usize) -> String {
-    if s.len() <= max {
-        s.to_string()
-    } else {
-        format!("{}…", &s[..max.saturating_sub(1)])
+    if s.chars().count() <= max {
+        return s.to_string();
+    }
+
+    let head: String = s.chars().take(max.saturating_sub(1)).collect();
+    format!("{head}…")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn truncate_handles_multibyte_boundary() {
+        // Cut point lands mid-multibyte-char; byte slicing would panic here.
+        let truncated = truncate("café—münchen", 6);
+        assert_eq!(truncated, "café—…");
+    }
+
+    #[test]
+    fn truncate_leaves_short_strings_intact() {
+        assert_eq!(truncate("inbox", 13), "inbox");
     }
 }
