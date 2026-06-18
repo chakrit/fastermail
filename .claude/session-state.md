@@ -1,6 +1,6 @@
 # FasterMail Session State
 
-Saved: 2026-06-18 (session 17)
+Saved: 2026-06-18 (session 18)
 
 ## Completed Tasks
 
@@ -60,8 +60,26 @@ Saved: 2026-06-18 (session 17)
      skills 40 → 17 (remaining extras are user-level fact-check/visualise)
    - Deleted `ace.local.toml`; moved `yolo = true` into committed `ace.toml`
    - `CLAUDE.md`: added "What This Repo Is" overview (stack, build/test, layout, conventions)
-   - No `docs/` scaffold (specs/ + DOCS.md already cover it); no Phase 2 spec run needed
-   - **Uncommitted** — `ace.toml`, `CLAUDE.md`, `.gitignore` modified, awaiting commit
+   - `3ea7513` Onboard repo into ACE (/ace-init)
+
+23. ✅ **docs/ ace-docs scaffold + specs migration**
+   - `483cb8a` Scaffold docs/ — usage (guides/, reference/) + design-record (spec/,
+     decisions/, notes/) clusters, six template READMEs, CLAUDE.md "Durable artifacts" pointer
+   - `cde067a` Migrate `specs/` → `docs/` via `git mv` (history preserved):
+     narrative → `docs/spec/`, tool + CLI contracts → `docs/reference/`
+   - `specs/README.md`→`docs/spec/overview.md`, `DOCS.md`→`docs/spec/how-it-works.md`,
+     deleted stale `SPEC.md` pointer; fixed cross-links
+
+24. ✅ **Spec-impl gap analysis + reconciliation**
+   - 3 parallel Explore agents (tool contracts / CLI / spec narrative). Verdict:
+     **zero feature gaps** — all 21 MCP tools aligned; CLI fully implemented (exceeds spec).
+     Every gap was spec-behind-code drift.
+   - `e114f8f` Reconcile docs/spec with implementation; drop integration-test spec
+   - testing.md §6 (integration tests) deleted per user — out of scope, do not re-suggest
+   - Reconciled: contacts present-tense (was "Phase 2"), architecture tree (cli/, config.rs,
+     logging.rs, testutil/, contact.rs), deps table (+clap/inquire/indicatif/console/toml),
+     startup flow (.env→logging→CLI/MCP split), exit codes 1/2/3, fm setup/config docs,
+     global --json/--raw note, 15→21 tool count
 
 ## TODO — Not Started
 
@@ -74,11 +92,13 @@ Saved: 2026-06-18 (session 17)
 - [ ] **Dockerfile**: Multi-stage build for distribution
 - [ ] **CI/release**: Cross-compilation for 4 targets (x86_64/aarch64 × linux/macos)
 - [ ] **Raw output mode**: True JMAP response pass-through (currently same as Json)
-- [ ] **Masked email support**: `maskedemail` capability available via FastMail extension
 
 ### Dropped
 - ~~Calendars~~ — FastMail has no `jmap:calendars` capability (CalDAV only)
 - ~~Update school general-coding skill with .env convention~~ — done, PR #15
+- ~~Integration tests (`tests/integration.rs`)~~ — deliberately out of scope (session 18).
+  See `docs/decisions/2026-06-18-no-integration-tests.md`. Do not re-suggest.
+- ~~Masked email support~~ — already fully implemented (action + CLI + 3 tools + 10 tests)
 
 ## Key Decisions Made
 
@@ -94,6 +114,10 @@ Saved: 2026-06-18 (session 17)
 - Response projection: filter to spec-defined fields
 - Test pattern: MockJmap wrapping httpmock, connect_to for URL injection, JmapClient::new for offline validation tests
 - ureq v3 auto-throws on 4xx/5xx — no manual status check needed
+- Docs follow ace-docs layout (session 18): `docs/spec/` = design source of truth,
+  `docs/reference/` = tool + CLI contracts, `docs/{guides,decisions,notes}/` per ace-docs.
+  Old `specs/`, `DOCS.md`, `SPEC.md` are gone — don't reference them.
+- Integration tests are out of scope by decision — see `docs/decisions/`
 
 ## Audit Notes (session 15)
 
