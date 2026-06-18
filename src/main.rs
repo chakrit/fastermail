@@ -1,3 +1,5 @@
+#![deny(warnings)]
+
 #[macro_use]
 mod logging;
 mod actions;

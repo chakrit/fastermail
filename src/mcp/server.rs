@@ -89,7 +89,7 @@ fn handle_request(
         return JsonRpcResponse::error(
             id,
             METHOD_NOT_FOUND,
-            format!("server not initialized, call initialize first"),
+            "server not initialized, call initialize first".to_string(),
         );
     }
 
@@ -134,7 +134,7 @@ fn write_response(
     method: &str,
 ) -> io::Result<()> {
     let json = serde_json::to_string(response).map_err(|e| {
-        io::Error::new(io::ErrorKind::Other, format!("serialize error: {e}"))
+        io::Error::other(format!("serialize error: {e}"))
     })?;
 
     log_trace!("mcp", "send: {json}");

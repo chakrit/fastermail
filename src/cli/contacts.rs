@@ -234,7 +234,7 @@ pub fn run(cmd: ContactCommand, ctx: &Context, io: &Io) -> Result<()> {
                 "{:<40} {:<24} {:<10} {}",
                 "ID", "NAME", "DEFAULT", "DESCRIPTION"
             ));
-            io.data(&format!("{}", "─".repeat(90)));
+            io.data(&"─".repeat(90));
 
             for book in books {
                 let id = book.get("id").and_then(|v| v.as_str()).unwrap_or("?");
@@ -287,7 +287,7 @@ fn format_contact_list(io: &Io, value: &serde_json::Value) {
         "{:<40} {:<24} {:<28} {}",
         "ID", "NAME", "EMAIL", "COMPANY"
     ));
-    io.data(&format!("{}", "─".repeat(100)));
+    io.data(&"─".repeat(100));
 
     for contact in contacts {
         let id = contact.get("id").and_then(|v| v.as_str()).unwrap_or("?");

@@ -75,14 +75,14 @@ pub fn run(cmd: VacationCommand, ctx: &Context, io: &Io) -> Result<()> {
                 ("subject", "Subject"),
                 ("textBody", "Text body"),
             ] {
-                if let Some(v) = value.get(key).and_then(|v| v.as_str()) {
-                    if !v.is_empty() {
-                        io.data(&format!(
-                            "{} {}",
-                            console::style(format!("{label}:")).bold(),
-                            v
-                        ));
-                    }
+                if let Some(v) = value.get(key).and_then(|v| v.as_str())
+                    && !v.is_empty()
+                {
+                    io.data(&format!(
+                        "{} {}",
+                        console::style(format!("{label}:")).bold(),
+                        v
+                    ));
                 }
             }
         }

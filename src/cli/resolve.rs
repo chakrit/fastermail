@@ -44,11 +44,11 @@ pub fn resolve_mailbox(input: &str, ctx: &Context, io: &Io) -> Result<String> {
 
     // Step 1: Check if input is a role alias
     let input_lower = input.to_lowercase();
-    if let Some(role) = role_for_alias(&input_lower) {
-        if let Some(id) = find_by_role(mailboxes, role) {
-            return Ok(id);
-        }
-        // Role alias didn't match any mailbox — fall through to name matching
+    // Role alias that resolves to a mailbox wins; otherwise fall through to name matching.
+    if let Some(role) = role_for_alias(&input_lower)
+        && let Some(id) = find_by_role(mailboxes, role)
+    {
+        return Ok(id);
     }
 
     // Step 2-4: Name matching (exact → prefix → substring)

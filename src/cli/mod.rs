@@ -251,22 +251,22 @@ impl Cli {
         ));
 
         // Check if config already exists with a token
-        if let Ok((existing_token, config::TokenSource::ConfigFile)) = config::resolve_token() {
-            if !existing_token.is_empty() {
-                io.warn(&format!(
-                    "Config file already has a token ({})",
-                    mask_token(&existing_token)
-                ));
-                let confirm = inquire::Confirm::new("Overwrite existing token?")
-                    .with_default(false)
-                    .prompt()
-                    .map_err(|e| {
-                        crate::error::Error::InvalidParams(format!("prompt cancelled: {e}"))
-                    })?;
-                if !confirm {
-                    io.hint("Setup cancelled");
-                    return Ok(());
-                }
+        if let Ok((existing_token, config::TokenSource::ConfigFile)) = config::resolve_token()
+            && !existing_token.is_empty()
+        {
+            io.warn(&format!(
+                "Config file already has a token ({})",
+                mask_token(&existing_token)
+            ));
+            let confirm = inquire::Confirm::new("Overwrite existing token?")
+                .with_default(false)
+                .prompt()
+                .map_err(|e| {
+                    crate::error::Error::InvalidParams(format!("prompt cancelled: {e}"))
+                })?;
+            if !confirm {
+                io.hint("Setup cancelled");
+                return Ok(());
             }
         }
 

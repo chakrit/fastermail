@@ -28,10 +28,10 @@ pub enum TokenSource {
 /// Returns the token and its source.
 pub fn resolve_token() -> Result<(String, TokenSource)> {
     // 1. Environment variable
-    if let Ok(t) = std::env::var("FASTMAIL_API_TOKEN") {
-        if !t.is_empty() {
-            return Ok((t, TokenSource::EnvVar));
-        }
+    if let Ok(t) = std::env::var("FASTMAIL_API_TOKEN")
+        && !t.is_empty()
+    {
+        return Ok((t, TokenSource::EnvVar));
     }
 
     // 2. Config file

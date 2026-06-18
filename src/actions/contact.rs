@@ -200,18 +200,17 @@ fn flatten_contact(card: &serde_json::Value) -> serde_json::Value {
 /// Extract full name from JSContact Name object.
 /// Prefers `name.full`, falls back to joining components.
 fn extract_full_name(card: &serde_json::Value) -> String {
-    let name_obj = match card.get("name") {
-        Some(n) => n,
-        None => return String::new(),
+    let Some(name_obj) = card.get("name") else {
+        return String::new();
     };
 
-    if let Some(full) = name_obj.get("full").and_then(|v| v.as_str()) {
-        if !full.is_empty() {
-            return full.to_string();
-        }
+    if let Some(full) = name_obj.get("full").and_then(|v| v.as_str())
+        && !full.is_empty()
+    {
+        return full.to_string();
     }
 
-    let components = name_obj
+    name_obj
         .get("components")
         .and_then(|v| v.as_array())
         .map(|arr| {
@@ -220,9 +219,7 @@ fn extract_full_name(card: &serde_json::Value) -> String {
                 .collect::<Vec<_>>()
                 .join(" ")
         })
-        .unwrap_or_default();
-
-    components
+        .unwrap_or_default()
 }
 
 /// Flatten JSContact Id[EmailAddress] map into [{type, address}].

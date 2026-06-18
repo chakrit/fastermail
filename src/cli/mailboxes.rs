@@ -134,7 +134,7 @@ fn format_mailbox_list(io: &Io, value: &serde_json::Value) {
         "{:<40} {:<20} {:<10} {:>6} {:>6}",
         "ID", "NAME", "ROLE", "TOTAL", "UNREAD"
     ));
-    io.data(&format!("{}", "─".repeat(84)));
+    io.data(&"─".repeat(84));
 
     for mb in mailboxes {
         let id = mb.get("id").and_then(|v| v.as_str()).unwrap_or("?");

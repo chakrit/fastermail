@@ -335,7 +335,7 @@ fn format_email_list(io: &Io, value: &serde_json::Value) {
         "{:<14} {:<20} {:<24} {}",
         "ID", "DATE", "FROM", "SUBJECT"
     ));
-    io.data(&format!("{}", "─".repeat(80)));
+    io.data(&"─".repeat(80));
 
     for email in emails {
         let id = email
@@ -346,13 +346,13 @@ fn format_email_list(io: &Io, value: &serde_json::Value) {
             .get("date")
             .or_else(|| email.get("receivedAt"))
             .and_then(|v| v.as_str())
-            .map(|d| truncate_date(d))
+            .map(truncate_date)
             .unwrap_or_default();
         let from = email
             .get("from")
             .and_then(|v| v.as_array())
             .and_then(|arr| arr.first())
-            .map(|f| format_address(f))
+            .map(format_address)
             .unwrap_or_default();
         let subject = email
             .get("subject")
@@ -384,7 +384,7 @@ fn format_email_body(io: &Io, value: &serde_json::Value) {
         .get("from")
         .and_then(|v| v.as_array())
         .and_then(|arr| arr.first())
-        .map(|f| format_address(f))
+        .map(format_address)
         .unwrap_or_default();
     let date = value
         .get("date")

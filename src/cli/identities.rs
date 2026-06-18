@@ -45,7 +45,7 @@ pub fn run(cmd: IdentityCommand, ctx: &Context, io: &Io) -> Result<()> {
                 "{:<40} {:<24} {}",
                 "ID", "NAME", "EMAIL"
             ));
-            io.data(&format!("{}", "─".repeat(80)));
+            io.data(&"─".repeat(80));
 
             for ident in identities {
                 let id = ident.get("id").and_then(|v| v.as_str()).unwrap_or("?");

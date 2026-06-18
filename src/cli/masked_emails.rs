@@ -76,7 +76,7 @@ pub fn run(cmd: MaskedEmailCommand, ctx: &Context, io: &Io) -> Result<()> {
                 "{:<40} {:<32} {:<16} {:<10} {}",
                 "ID", "EMAIL", "DOMAIN", "STATE", "DESCRIPTION"
             ));
-            io.data(&format!("{}", "─".repeat(110)));
+            io.data(&"─".repeat(110));
 
             for item in items {
                 let id = item.get("id").and_then(|v| v.as_str()).unwrap_or("?");
