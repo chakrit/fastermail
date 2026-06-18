@@ -6,11 +6,26 @@ send email from your terminal. Also works as an
 
 ## Install
 
+**Homebrew** (macOS, Apple Silicon):
+
+```bash
+brew install chakrit/tap/fastermail
+```
+
+**Install script** (macOS / Linux) — downloads the latest release binary to
+`~/.local/bin/fm`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/chakrit/fastermail/main/scripts/install.sh | bash
+```
+
+**From source** (any platform with a Rust toolchain):
+
 ```bash
 cargo install --git https://github.com/chakrit/fastermail
 ```
 
-This gives you the `fm` binary.
+All three give you the `fm` binary.
 
 ## Configure
 
