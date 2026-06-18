@@ -19,13 +19,14 @@ Calendars are out of scope (FastMail exposes only CalDAV, no JMAP).
 - **Layout**: `src/actions/` (unit-of-work structs, one per operation), `src/cli/` (clap
   subcommands), `src/jmap/` (JMAP client + types), `src/mcp/` (JSON-RPC stdio server),
   `src/testutil/` (MockJmap).
-- **Design docs**: `specs/` is the source of truth (reverse-spec'd to code). `DOCS.md` is
-  the how-it-works narrative; `README.md` is end-user usage.
+- **Design docs**: `docs/spec/` is the source of truth (reverse-spec'd to code);
+  `docs/reference/` holds the tool + CLI contracts. `docs/spec/how-it-works.md` is the
+  how-it-works narrative; `README.md` is end-user usage.
 - **Conventions**: one crate-wide error enum (`src/error.rs`); tool errors return
   `isError: true` rather than failing the JSON-RPC call; minimal deps for fast compiles.
 
 Load-bearing skills: `general-coding` + `rust-coding` (mandatory for any code),
-`markdown-writing` for `specs/`/docs, the `ace-*` family for the workflow.
+`markdown-writing` for `docs/`, the `ace-*` family for the workflow.
 
 ## Durable artifacts
 

@@ -16,16 +16,18 @@ Calendars dropped (FastMail only exposes CalDAV, no JMAP capability).
   `run(&self, ctx: &Context) -> Result<T>` method.
 - **Distribution**: Linux + macOS binaries (x86_64 + aarch64) and Docker images.
 
-## Spec Files
+## Documents
 
-| File | Contents |
-|------|----------|
-| [protocol.md](protocol.md) | MCP protocol layer — JSON-RPC, handshake, error codes |
-| [jmap.md](jmap.md) | JMAP client layer — session, auth, request format |
-| [architecture.md](architecture.md) | Project structure, key types, deps, distribution |
-| [tools/README.md](tools/README.md) | Tool index with one-line descriptions |
-| [tools/*.md](tools/) | Individual tool specifications |
-| [testing.md](testing.md) | Test strategy and mock server design |
+| File                                                          | Contents                                              |
+|---------------------------------------------------------------|-------------------------------------------------------|
+| [protocol.md](protocol.md)                                    | MCP protocol layer — JSON-RPC, handshake, error codes |
+| [jmap.md](jmap.md)                                            | JMAP client layer — session, auth, request format     |
+| [architecture.md](architecture.md)                            | Project structure, key types, deps, distribution      |
+| [testing.md](testing.md)                                      | Test strategy and mock server design                  |
+| [how-it-works.md](how-it-works.md)                            | End-to-end how-it-works narrative                     |
+| [../reference/tools/README.md](../reference/tools/README.md)  | Tool index with one-line descriptions                 |
+| [../reference/tools/](../reference/tools/)                    | Individual tool contracts (one file per tool)         |
+| [../reference/cli.md](../reference/cli.md)                    | CLI command + flag reference                          |
 
 ## Startup Flow
 

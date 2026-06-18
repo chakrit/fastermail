@@ -6,8 +6,8 @@
 fastermail/
 ├── Cargo.toml
 ├── Dockerfile
-├── specs/                   # Specification files
-├── .skills/                 # Coding convention files
+├── docs/                    # Specs, references, guides (see docs/README.md)
+├── .claude/skills/          # Coding convention files (ACE-managed symlinks)
 ├── src/
 │   ├── main.rs              # Entry point: read env, init session, run server loop
 │   ├── error.rs             # Single error enum for the crate
