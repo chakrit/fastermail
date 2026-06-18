@@ -114,8 +114,8 @@ impl Io {
         }
     }
 
-    /// Print error: ✗ red (always shown).
-    pub fn error(&self, msg: &str) {
+    /// Print error: ✗ red (always shown, mode-independent — hence no `self`).
+    pub fn error(msg: &str) {
         eprintln!("{} {}", style("✗").red(), msg);
     }
 

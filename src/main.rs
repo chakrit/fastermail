@@ -17,6 +17,7 @@ use clap::Parser;
 
 use crate::actions::Context;
 use crate::cli::Cli;
+use crate::cli::io::{Io, TerminalGuard};
 
 fn main() {
     // Load .env then .env.local (local overrides base). Missing files are fine.
@@ -24,10 +25,11 @@ fn main() {
     load_dotenv(".env.local");
 
     logging::init();
+    let _guard = TerminalGuard::new();
 
     let cli = Cli::parse();
     if let Err(e) = cli.run() {
-        eprintln!("{} {e}", console::style("✗").red());
+        Io::error(&e.to_string());
         process::exit(exit_code(&e));
     }
 }
