@@ -3,11 +3,18 @@ target/
 ace.local.toml
 
 # ACE-managed — do not edit this block.
-# These folders are symlinks to the school cache managed by `ace setup`.
-# To update skills, update the school repo instead.
-# See: https://github.com/prod9/ace
-.claude/skills
-.claude/rules
-.claude/commands
+# Managed by ACE. See https://github.com/ace-rs/ace
+.agents/agents
+.agents/commands
+.agents/rules
+.agents/skills
 .claude/agents
+.claude/commands
+.claude/rules
+.claude/skills
+.opencode/agents
+.opencode/commands
+.opencode/rules
+.opencode/skills
+ace.local.toml
 # end ACE

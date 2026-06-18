@@ -1,6 +1,6 @@
 # FasterMail Session State
 
-Saved: 2026-03-30 (session 16)
+Saved: 2026-06-18 (session 17)
 
 ## Completed Tasks
 
@@ -53,6 +53,15 @@ Saved: 2026-03-30 (session 16)
    - Actions production code (found /set error handling gaps → fixed in #17)
    - CLI + config + main (clean — WIP dead code in io.rs is signal handling prep)
    - Specs vs implementation (mostly aligned; integration tests still missing)
+
+22. ✅ **ACE onboarding (`/ace-init`)** — repo not previously ACE-shaped
+   - `ace.toml`: curated skill set (general-coding, rust-coding, markdown-writing,
+     ace + ace-*, issue-creator, find-skills, skill-creator, lowfat-pantry); active
+     skills 40 → 17 (remaining extras are user-level fact-check/visualise)
+   - Deleted `ace.local.toml`; moved `yolo = true` into committed `ace.toml`
+   - `CLAUDE.md`: added "What This Repo Is" overview (stack, build/test, layout, conventions)
+   - No `docs/` scaffold (specs/ + DOCS.md already cover it); no Phase 2 spec run needed
+   - **Uncommitted** — `ace.toml`, `CLAUDE.md`, `.gitignore` modified, awaiting commit
 
 ## TODO — Not Started
 

@@ -1,1 +1,14 @@
 school = "prod9/school"
+yolo = true
+
+skills = [
+  "general-coding",   # mandatory
+  "rust-coding",      # the language
+  "markdown-writing", # specs/ + docs
+  "ace",
+  "ace-*",            # workflow family
+  "issue-creator",
+  "find-skills",
+  "skill-creator",    # school skill edits
+  "lowfat-pantry",    # tooling
+]
