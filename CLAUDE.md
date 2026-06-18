@@ -27,6 +27,12 @@ Calendars are out of scope (FastMail exposes only CalDAV, no JMAP).
 Load-bearing skills: `general-coding` + `rust-coding` (mandatory for any code),
 `markdown-writing` for `specs/`/docs, the `ace-*` family for the workflow.
 
+## Durable artifacts
+
+`docs/` — usage docs (`guides/`, `reference/`; sorted by type) and a design record
+(`spec/`, `decisions/`, `notes/`; sorted by permanence). Default to `notes/`. See
+`docs/README.md` and per-dir READMEs for routing.
+
 ## Communication Style
 
 **Being helpful means being efficient.** Every unsolicited offer wastes the user's time and
