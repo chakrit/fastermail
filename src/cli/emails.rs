@@ -1,7 +1,8 @@
 use clap::Subcommand;
 
 use crate::actions::email::{
-    DeleteEmail, FlagEmail, GetEmailBody, GetEmails, MoveEmail, SearchEmails, SendEmail,
+    BodyFormat, DeleteEmail, Flag, FlagEmail, GetEmailBody, GetEmails, MoveEmail, SearchEmails,
+    SendEmail,
 };
 use crate::actions::{Action, Context};
 use crate::cli::io::{Io, OutputMode};
@@ -203,6 +204,7 @@ pub fn run(cmd: EmailCommand, ctx: &Context, io: &Io) -> Result<()> {
             format_email_list(io, &value);
         }
         EmailCommand::Get { email_id, format } => {
+            let format = BodyFormat::parse(&format)?;
             let spinner = io.progress("Fetching email…");
             let action = GetEmailBody { email_id, format };
             let result = action.run(ctx);
@@ -228,11 +230,12 @@ pub fn run(cmd: EmailCommand, ctx: &Context, io: &Io) -> Result<()> {
             flag,
             unset,
         } => {
+            let parsed_flag = Flag::parse(&flag)?;
             let verb = if unset { "Unsetting" } else { "Setting" };
             let spinner = io.progress(&format!("{verb} {flag}…"));
             let action = FlagEmail {
                 email_ids,
-                flag: flag.clone(),
+                flag: parsed_flag,
                 value: !unset,
             };
             let result = action.run(ctx);

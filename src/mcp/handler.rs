@@ -134,7 +134,7 @@ fn dispatch_tool(
         "get_email_body" => {
             let action = email::GetEmailBody {
                 email_id: str_param(args, "emailId"),
-                format: str_param(args, "format"),
+                format: email::BodyFormat::parse(&str_param(args, "format"))?,
             };
             action.run(ctx)
         }
@@ -170,7 +170,7 @@ fn dispatch_tool(
             }
             let action = email::FlagEmail {
                 email_ids: str_array_param(args, "emailIds"),
-                flag: str_param(args, "flag"),
+                flag: email::Flag::parse(&str_param(args, "flag"))?,
                 value: bool_param(args, "value"),
             };
             action.run(ctx)

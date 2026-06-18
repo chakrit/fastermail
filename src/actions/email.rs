@@ -351,9 +351,38 @@ impl SearchEmails {
     }
 }
 
+/// Which body representation to fetch. Empty input defaults to text.
+#[derive(Debug, Clone, Copy)]
+pub enum BodyFormat {
+    Text,
+    Html,
+    Both,
+}
+
+impl BodyFormat {
+    pub fn parse(s: &str) -> Result<Self> {
+        match s {
+            "" | "text" => Ok(Self::Text),
+            "html" => Ok(Self::Html),
+            "both" => Ok(Self::Both),
+            _ => Err(Error::InvalidParams(
+                "format must be text, html, or both".to_string(),
+            )),
+        }
+    }
+
+    fn fetch_property(self) -> &'static str {
+        match self {
+            Self::Text => "fetchTextBodyValues",
+            Self::Html => "fetchHTMLBodyValues",
+            Self::Both => "fetchAllBodyValues",
+        }
+    }
+}
+
 pub struct GetEmailBody {
     pub email_id: String,
-    pub format: String,
+    pub format: BodyFormat,
 }
 
 impl Action for GetEmailBody {
@@ -362,28 +391,12 @@ impl Action for GetEmailBody {
             return Err(Error::InvalidParams("emailId is required".to_string()));
         }
 
-        let format = if self.format.is_empty() {
-            "text"
-        } else {
-            &self.format
-        };
-
         let mut args = serde_json::json!({
             "accountId": ctx.account_id,
             "ids": [self.email_id],
             "properties": ["id", "subject", "from", "to", "receivedAt", "textBody", "htmlBody", "bodyValues"]
         });
-
-        match format {
-            "text" => args["fetchTextBodyValues"] = serde_json::json!(true),
-            "html" => args["fetchHTMLBodyValues"] = serde_json::json!(true),
-            "both" => args["fetchAllBodyValues"] = serde_json::json!(true),
-            _ => {
-                return Err(Error::InvalidParams(
-                    "format must be text, html, or both".to_string(),
-                ))
-            }
-        }
+        args[self.format.fetch_property()] = serde_json::json!(true);
 
         let data = ctx
             .jmap
@@ -746,9 +759,40 @@ impl DeleteEmail {
     }
 }
 
+/// An IMAP-style keyword flag settable on an email.
+#[derive(Debug, Clone, Copy)]
+pub enum Flag {
+    Seen,
+    Flagged,
+    Answered,
+    Draft,
+}
+
+impl Flag {
+    pub fn parse(s: &str) -> Result<Self> {
+        match s {
+            "seen" => Ok(Self::Seen),
+            "flagged" => Ok(Self::Flagged),
+            "answered" => Ok(Self::Answered),
+            "draft" => Ok(Self::Draft),
+            "" => Err(Error::InvalidParams("flag is required".to_string())),
+            _ => Err(Error::InvalidParams(format!("invalid flag: {s}"))),
+        }
+    }
+
+    fn keyword(self) -> &'static str {
+        match self {
+            Self::Seen => "$seen",
+            Self::Flagged => "$flagged",
+            Self::Answered => "$answered",
+            Self::Draft => "$draft",
+        }
+    }
+}
+
 pub struct FlagEmail {
     pub email_ids: Vec<String>,
-    pub flag: String,
+    pub flag: Flag,
     pub value: bool,
 }
 
@@ -757,24 +801,8 @@ impl Action for FlagEmail {
         if self.email_ids.is_empty() {
             return Err(Error::InvalidParams("emailIds is required".to_string()));
         }
-        if self.flag.is_empty() {
-            return Err(Error::InvalidParams("flag is required".to_string()));
-        }
 
-        let keyword = match self.flag.as_str() {
-            "seen" => "$seen",
-            "flagged" => "$flagged",
-            "answered" => "$answered",
-            "draft" => "$draft",
-            _ => {
-                return Err(Error::InvalidParams(format!(
-                    "invalid flag: {}",
-                    self.flag
-                )))
-            }
-        };
-
-        let keyword_path = format!("keywords/{keyword}");
+        let keyword_path = format!("keywords/{}", self.flag.keyword());
         let mut update = serde_json::Map::new();
         for id in &self.email_ids {
             update.insert(
@@ -933,7 +961,7 @@ mod tests {
         let ctx = validation_ctx();
         let action = GetEmailBody {
             email_id: "".to_string(),
-            format: "text".to_string(),
+            format: BodyFormat::Text,
         };
         let err = action.run(&ctx).expect_err("should fail without emailId");
         let msg = err.to_string();
@@ -942,12 +970,7 @@ mod tests {
 
     #[test]
     fn get_email_body_rejects_invalid_format() {
-        let ctx = validation_ctx();
-        let action = GetEmailBody {
-            email_id: "e001".to_string(),
-            format: "xml".to_string(),
-        };
-        let err = action.run(&ctx).expect_err("should fail with invalid format");
+        let err = BodyFormat::parse("xml").expect_err("should reject invalid format");
         let msg = err.to_string();
         assert!(msg.contains("format"), "error should mention format: {msg}");
     }
@@ -978,7 +1001,7 @@ mod tests {
 
         let action = GetEmailBody {
             email_id: "e001".to_string(),
-            format: "text".to_string(),
+            format: BodyFormat::Text,
         };
         let result = action.run(&ctx).expect("get_email_body should succeed");
         assert_eq!(result["textBody"], "plain text body");
@@ -1062,7 +1085,7 @@ mod tests {
         let ctx = validation_ctx();
         let action = FlagEmail {
             email_ids: vec![],
-            flag: "seen".to_string(),
+            flag: Flag::Seen,
             value: true,
         };
         let err = action.run(&ctx).expect_err("should fail without emailIds");
@@ -1072,13 +1095,7 @@ mod tests {
 
     #[test]
     fn flag_email_rejects_invalid_flag() {
-        let ctx = validation_ctx();
-        let action = FlagEmail {
-            email_ids: vec!["e001".to_string()],
-            flag: "invalid".to_string(),
-            value: true,
-        };
-        let err = action.run(&ctx).expect_err("should fail with invalid flag");
+        let err = Flag::parse("invalid").expect_err("should reject invalid flag");
         let msg = err.to_string();
         assert!(msg.contains("invalid"), "error should mention invalid flag: {msg}");
     }
@@ -1095,7 +1112,7 @@ mod tests {
 
         let action = FlagEmail {
             email_ids: vec!["e001".to_string()],
-            flag: "seen".to_string(),
+            flag: Flag::Seen,
             value: true,
         };
         let result = action.run(&ctx).expect("flag_email should succeed");
