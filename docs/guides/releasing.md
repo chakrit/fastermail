@@ -9,7 +9,10 @@ doc covers the prereqs, the moving pieces, and what each step does.
 One-time host setup:
 
 - `cargo install cargo-edit` — provides `cargo set-version` (used by `release.sh`).
-- `cargo install cargo-zigbuild` — cross-compiles the Linux/Windows targets.
+- `cargo install cargo-zigbuild` (**≥ 0.23.0**) — cross-compiles the Linux/Windows
+  targets. 0.23.0 is the first release whose zigcc wrapper filters the
+  `--fix-cortex-a53-843419` link arg that rustc emits for aarch64; with zig 0.15.x, older
+  versions fail to link `aarch64-unknown-linux-{gnu,musl}`.
 - **Zig 0.14.x or 0.15.2** — Zig 0.16 has a known `ar` regression that breaks `ring`
   (rust-cross/cargo-zigbuild#433). `brew install zig` currently pulls 0.16; install a
   known-good version manually from <https://ziglang.org/download/> if your package
