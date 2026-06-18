@@ -358,6 +358,49 @@ pub struct GetContacts {
     pub limit: u32,
 }
 
+/// Run a `ContactCard/query` → `ContactCard/get` pipeline for a filter, returning the
+/// flattened contact list. The caller resolves `limit` (Get and Search differ in default).
+fn query_and_flatten(
+    ctx: &Context,
+    filter: serde_json::Value,
+    limit: u32,
+) -> Result<serde_json::Value> {
+    let using = vec!["urn:ietf:params:jmap:core".to_string(), CAPABILITY.to_string()];
+
+    let query_args = serde_json::json!({
+        "accountId": ctx.account_id,
+        "filter": filter,
+        "sort": [{ "property": "updated", "isAscending": false }],
+        "limit": limit,
+    });
+
+    let get_args = serde_json::json!({
+        "accountId": ctx.account_id,
+        "#ids": back_reference("call-0", "ContactCard/query", "/ids"),
+    });
+
+    let method_calls = vec![
+        ("ContactCard/query".to_string(), query_args, "call-0".to_string()),
+        ("ContactCard/get".to_string(), get_args, "call-1".to_string()),
+    ];
+
+    let resp = ctx.jmap.call(using, method_calls)?;
+
+    let list = resp
+        .method_responses
+        .iter()
+        .find(|(m, _, _)| m == "ContactCard/get")
+        .map(|(_, data, _)| data.get("list").cloned().unwrap_or(serde_json::json!([])))
+        .unwrap_or(serde_json::json!([]));
+
+    let contacts: Vec<serde_json::Value> = list
+        .as_array()
+        .map(|arr| arr.iter().map(flatten_contact).collect())
+        .unwrap_or_default();
+
+    Ok(serde_json::json!(contacts))
+}
+
 impl Action for GetContacts {
     fn run(&self, ctx: &Context) -> Result<serde_json::Value> {
         let limit = if self.limit == 0 {
@@ -371,43 +414,7 @@ impl Action for GetContacts {
             filter["inAddressBook"] = serde_json::json!(self.address_book_id);
         }
 
-        let using = vec![
-            "urn:ietf:params:jmap:core".to_string(),
-            CAPABILITY.to_string(),
-        ];
-
-        let query_args = serde_json::json!({
-            "accountId": ctx.account_id,
-            "filter": filter,
-            "sort": [{ "property": "updated", "isAscending": false }],
-            "limit": limit,
-        });
-
-        let get_args = serde_json::json!({
-            "accountId": ctx.account_id,
-            "#ids": back_reference("call-0", "ContactCard/query", "/ids"),
-        });
-
-        let method_calls = vec![
-            ("ContactCard/query".to_string(), query_args, "call-0".to_string()),
-            ("ContactCard/get".to_string(), get_args, "call-1".to_string()),
-        ];
-
-        let resp = ctx.jmap.call(using, method_calls)?;
-
-        let list = resp
-            .method_responses
-            .iter()
-            .find(|(m, _, _)| m == "ContactCard/get")
-            .map(|(_, data, _)| data.get("list").cloned().unwrap_or(serde_json::json!([])))
-            .unwrap_or(serde_json::json!([]));
-
-        let contacts: Vec<serde_json::Value> = list
-            .as_array()
-            .map(|arr| arr.iter().map(flatten_contact).collect())
-            .unwrap_or_default();
-
-        Ok(serde_json::json!(contacts))
+        query_and_flatten(ctx, filter, limit)
     }
 }
 
@@ -428,43 +435,8 @@ impl Action for SearchContacts {
             self.limit
         };
 
-        let using = vec![
-            "urn:ietf:params:jmap:core".to_string(),
-            CAPABILITY.to_string(),
-        ];
-
-        let query_args = serde_json::json!({
-            "accountId": ctx.account_id,
-            "filter": { "text": self.query },
-            "sort": [{ "property": "updated", "isAscending": false }],
-            "limit": limit,
-        });
-
-        let get_args = serde_json::json!({
-            "accountId": ctx.account_id,
-            "#ids": back_reference("call-0", "ContactCard/query", "/ids"),
-        });
-
-        let method_calls = vec![
-            ("ContactCard/query".to_string(), query_args, "call-0".to_string()),
-            ("ContactCard/get".to_string(), get_args, "call-1".to_string()),
-        ];
-
-        let resp = ctx.jmap.call(using, method_calls)?;
-
-        let list = resp
-            .method_responses
-            .iter()
-            .find(|(m, _, _)| m == "ContactCard/get")
-            .map(|(_, data, _)| data.get("list").cloned().unwrap_or(serde_json::json!([])))
-            .unwrap_or(serde_json::json!([]));
-
-        let contacts: Vec<serde_json::Value> = list
-            .as_array()
-            .map(|arr| arr.iter().map(flatten_contact).collect())
-            .unwrap_or_default();
-
-        Ok(serde_json::json!(contacts))
+        let filter = serde_json::json!({ "text": self.query });
+        query_and_flatten(ctx, filter, limit)
     }
 }
 

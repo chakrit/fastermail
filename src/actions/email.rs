@@ -57,6 +57,65 @@ fn address_objects(addrs: &[String]) -> Vec<serde_json::Value> {
         .collect()
 }
 
+/// Run an `Email/query` → `Email/get` pipeline for a filter, returning the fetched
+/// email list with body content resolved. A `limit` of 0 falls back to `DEFAULT_LIMIT`.
+fn query_and_fetch(
+    ctx: &Context,
+    filter: serde_json::Value,
+    limit: u32,
+    include_body: bool,
+) -> Result<serde_json::Value> {
+    let limit = if limit == 0 { DEFAULT_LIMIT } else { limit };
+
+    let using = vec![
+        "urn:ietf:params:jmap:core".to_string(),
+        "urn:ietf:params:jmap:mail".to_string(),
+    ];
+
+    let query_args = serde_json::json!({
+        "accountId": ctx.account_id,
+        "filter": filter,
+        "sort": [{ "property": "receivedAt", "isAscending": false }],
+        "limit": limit
+    });
+
+    let mut get_args = serde_json::json!({
+        "accountId": ctx.account_id,
+        "#ids": back_reference("call-0", "Email/query", "/ids"),
+        "properties": ["id", "subject", "from", "to", "receivedAt", "preview"]
+    });
+
+    if include_body {
+        get_args["fetchTextBodyValues"] = serde_json::json!(true);
+        get_args["fetchHTMLBodyValues"] = serde_json::json!(true);
+        get_args["properties"] = serde_json::json!(
+            ["id", "subject", "from", "to", "receivedAt", "preview", "textBody", "htmlBody", "bodyValues"]
+        );
+    }
+
+    let method_calls = vec![
+        ("Email/query".to_string(), query_args, "call-0".to_string()),
+        ("Email/get".to_string(), get_args, "call-1".to_string()),
+    ];
+
+    let resp = ctx.jmap.call(using, method_calls)?;
+
+    let mut email_data = resp
+        .method_responses
+        .iter()
+        .find(|(m, _, _)| m == "Email/get")
+        .map(|(_, data, _)| data.get("list").cloned().unwrap_or(serde_json::json!([])))
+        .unwrap_or(serde_json::json!([]));
+
+    if let Some(emails) = email_data.as_array_mut() {
+        for email in emails.iter_mut() {
+            extract_body_content(email);
+        }
+    }
+
+    Ok(email_data)
+}
+
 pub fn tools() -> Vec<Tool> {
     vec![
         Tool {
@@ -170,59 +229,8 @@ pub struct GetEmails {
 impl Action for GetEmails {
     fn run(&self, ctx: &Context) -> Result<serde_json::Value> {
         let mailbox_id = self.resolve_mailbox_id(ctx)?;
-        let limit = if self.limit == 0 {
-            DEFAULT_LIMIT
-        } else {
-            self.limit
-        };
-
-        let using = vec![
-            "urn:ietf:params:jmap:core".to_string(),
-            "urn:ietf:params:jmap:mail".to_string(),
-        ];
-
-        let query_args = serde_json::json!({
-            "accountId": ctx.account_id,
-            "filter": { "inMailbox": mailbox_id },
-            "sort": [{ "property": "receivedAt", "isAscending": false }],
-            "limit": limit
-        });
-
-        let mut get_args = serde_json::json!({
-            "accountId": ctx.account_id,
-            "#ids": back_reference("call-0", "Email/query", "/ids"),
-            "properties": ["id", "subject", "from", "to", "receivedAt", "preview"]
-        });
-
-        if self.include_body {
-            get_args["fetchTextBodyValues"] = serde_json::json!(true);
-            get_args["fetchHTMLBodyValues"] = serde_json::json!(true);
-            get_args["properties"] = serde_json::json!(
-                ["id", "subject", "from", "to", "receivedAt", "preview", "textBody", "htmlBody", "bodyValues"]
-            );
-        }
-
-        let method_calls = vec![
-            ("Email/query".to_string(), query_args, "call-0".to_string()),
-            ("Email/get".to_string(), get_args, "call-1".to_string()),
-        ];
-
-        let resp = ctx.jmap.call(using, method_calls)?;
-
-        let mut email_data = resp
-            .method_responses
-            .iter()
-            .find(|(m, _, _)| m == "Email/get")
-            .map(|(_, data, _)| data.get("list").cloned().unwrap_or(serde_json::json!([])))
-            .unwrap_or(serde_json::json!([]));
-
-        if let Some(emails) = email_data.as_array_mut() {
-            for email in emails.iter_mut() {
-                extract_body_content(email);
-            }
-        }
-
-        Ok(email_data)
+        let filter = serde_json::json!({ "inMailbox": mailbox_id });
+        query_and_fetch(ctx, filter, self.limit, self.include_body)
     }
 }
 
@@ -269,59 +277,7 @@ pub struct SearchEmails {
 impl Action for SearchEmails {
     fn run(&self, ctx: &Context) -> Result<serde_json::Value> {
         let filter = self.build_filter()?;
-        let limit = if self.limit == 0 {
-            DEFAULT_LIMIT
-        } else {
-            self.limit
-        };
-
-        let using = vec![
-            "urn:ietf:params:jmap:core".to_string(),
-            "urn:ietf:params:jmap:mail".to_string(),
-        ];
-
-        let query_args = serde_json::json!({
-            "accountId": ctx.account_id,
-            "filter": filter,
-            "sort": [{ "property": "receivedAt", "isAscending": false }],
-            "limit": limit
-        });
-
-        let mut get_args = serde_json::json!({
-            "accountId": ctx.account_id,
-            "#ids": back_reference("call-0", "Email/query", "/ids"),
-            "properties": ["id", "subject", "from", "to", "receivedAt", "preview"]
-        });
-
-        if self.include_body {
-            get_args["fetchTextBodyValues"] = serde_json::json!(true);
-            get_args["fetchHTMLBodyValues"] = serde_json::json!(true);
-            get_args["properties"] = serde_json::json!(
-                ["id", "subject", "from", "to", "receivedAt", "preview", "textBody", "htmlBody", "bodyValues"]
-            );
-        }
-
-        let method_calls = vec![
-            ("Email/query".to_string(), query_args, "call-0".to_string()),
-            ("Email/get".to_string(), get_args, "call-1".to_string()),
-        ];
-
-        let resp = ctx.jmap.call(using, method_calls)?;
-
-        let mut email_data = resp
-            .method_responses
-            .iter()
-            .find(|(m, _, _)| m == "Email/get")
-            .map(|(_, data, _)| data.get("list").cloned().unwrap_or(serde_json::json!([])))
-            .unwrap_or(serde_json::json!([]));
-
-        if let Some(emails) = email_data.as_array_mut() {
-            for email in emails.iter_mut() {
-                extract_body_content(email);
-            }
-        }
-
-        Ok(email_data)
+        query_and_fetch(ctx, filter, self.limit, self.include_body)
     }
 }
 
