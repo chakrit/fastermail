@@ -6,6 +6,7 @@ pub mod masked_email;
 pub mod vacation;
 
 use crate::error::{Error, Result};
+use crate::json;
 use crate::jmap::client::JmapClient;
 use crate::mcp::types::Tool;
 use crate::recorder::Recorder;
@@ -80,8 +81,8 @@ pub fn check_set_errors(data: &serde_json::Value, method: &str) -> Result<()> {
 pub fn find_mailbox_id_by_role(mailboxes: &[serde_json::Value], role: &str) -> Option<String> {
     mailboxes
         .iter()
-        .filter(|m| m.get("role").and_then(|r| r.as_str()) == Some(role))
-        .find_map(|m| m.get("id").and_then(|id| id.as_str()).map(String::from))
+        .filter(|m| json::str_at(m, "/role") == Some(role))
+        .find_map(|m| json::str_at(m, "/id").map(String::from))
 }
 
 /// Find a mailbox id in a JMAP `Mailbox/get` list by exact, case-insensitive name.
@@ -94,7 +95,7 @@ pub fn find_mailbox_id_by_name(mailboxes: &[serde_json::Value], name: &str) -> O
                 .and_then(|n| n.as_str())
                 .is_some_and(|n| n.to_lowercase() == target)
         })
-        .find_map(|m| m.get("id").and_then(|id| id.as_str()).map(String::from))
+        .find_map(|m| json::str_at(m, "/id").map(String::from))
 }
 
 /// Return the list of all registered tool definitions.

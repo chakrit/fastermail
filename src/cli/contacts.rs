@@ -1,4 +1,5 @@
 use clap::Subcommand;
+use crate::json;
 
 use crate::actions::contact::{
     CreateContact, DeleteContact, GetContacts, ListAddressBooks, SearchContacts, UpdateContact,
@@ -237,8 +238,8 @@ pub fn run(cmd: ContactCommand, ctx: &Context, io: &Io) -> Result<()> {
             io.data(&"─".repeat(90));
 
             for book in books {
-                let id = book.get("id").and_then(|v| v.as_str()).unwrap_or("?");
-                let name = book.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                let id = json::str_at(book, "/id").unwrap_or("?");
+                let name = json::str_at(book, "/name").unwrap_or("");
                 let is_default = book
                     .get("isDefault")
                     .and_then(|v| v.as_bool())
@@ -290,7 +291,7 @@ fn format_contact_list(io: &Io, value: &serde_json::Value) {
     io.data(&"─".repeat(100));
 
     for contact in contacts {
-        let id = contact.get("id").and_then(|v| v.as_str()).unwrap_or("?");
+        let id = json::str_at(contact, "/id").unwrap_or("?");
         let name = contact
             .get("name")
             .and_then(|v| v.as_str())

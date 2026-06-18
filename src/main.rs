@@ -7,6 +7,7 @@ mod cli;
 mod config;
 mod error;
 mod jmap;
+mod json;
 mod mcp;
 mod recorder;
 #[cfg(test)]

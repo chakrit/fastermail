@@ -1,4 +1,5 @@
 use clap::Subcommand;
+use crate::json;
 
 use crate::actions::email::{
     BodyFormat, DeleteEmail, Flag, FlagEmail, GetEmailBody, GetEmails, MoveEmail, SearchEmails,
@@ -413,9 +414,9 @@ fn format_email_body(io: &Io, value: &serde_json::Value) {
     io.separator();
 
     // Show body content
-    if let Some(text) = value.get("textBody").and_then(|v| v.as_str()) {
+    if let Some(text) = json::str_at(value, "/textBody") {
         io.data(text);
-    } else if let Some(html) = value.get("htmlBody").and_then(|v| v.as_str()) {
+    } else if let Some(html) = json::str_at(value, "/htmlBody") {
         io.data(html);
     } else {
         io.warn("No body content");
@@ -442,8 +443,8 @@ fn format_action_result(io: &Io, value: &serde_json::Value, label: &str) {
 
 /// Format a JMAP address object { "name": "...", "email": "..." } into a display string.
 fn format_address(addr: &serde_json::Value) -> String {
-    let name = addr.get("name").and_then(|v| v.as_str()).unwrap_or("");
-    let email = addr.get("email").and_then(|v| v.as_str()).unwrap_or("");
+    let name = json::str_at(addr, "/name").unwrap_or("");
+    let email = json::str_at(addr, "/email").unwrap_or("");
     if name.is_empty() {
         email.to_string()
     } else {

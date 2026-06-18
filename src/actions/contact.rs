@@ -1,4 +1,5 @@
 use crate::actions::{check_set_errors, project_fields_array, Action, Context};
+use crate::json;
 use crate::error::{Error, Result};
 use crate::jmap::types::back_reference;
 use crate::mcp::types::Tool;
@@ -208,7 +209,7 @@ fn extract_full_name(card: &serde_json::Value) -> String {
         return String::new();
     };
 
-    if let Some(full) = name_obj.get("full").and_then(|v| v.as_str())
+    if let Some(full) = json::str_at(name_obj, "/full")
         && !full.is_empty()
     {
         return full.to_string();
@@ -219,7 +220,7 @@ fn extract_full_name(card: &serde_json::Value) -> String {
         .and_then(|v| v.as_array())
         .map(|arr| {
             arr.iter()
-                .filter_map(|c| c.get("value").and_then(|v| v.as_str()))
+                .filter_map(|c| json::str_at(c, "/value"))
                 .collect::<Vec<_>>()
                 .join(" ")
         })
@@ -234,7 +235,7 @@ fn flatten_email_map(emails: Option<&serde_json::Value>) -> Vec<serde_json::Valu
 
     map.values()
         .filter_map(|entry| {
-            let address = entry.get("address").and_then(|v| v.as_str())?;
+            let address = json::str_at(entry, "/address")?;
             let ctx_type = context_type(entry);
             Some(serde_json::json!({ "type": ctx_type, "address": address }))
         })
@@ -249,7 +250,7 @@ fn flatten_phone_map(phones: Option<&serde_json::Value>) -> Vec<serde_json::Valu
 
     map.values()
         .filter_map(|entry| {
-            let number = entry.get("number").and_then(|v| v.as_str())?;
+            let number = json::str_at(entry, "/number")?;
             let ctx_type = context_type(entry);
             Some(serde_json::json!({ "type": ctx_type, "number": number }))
         })
@@ -661,7 +662,7 @@ mod tests {
 
         let addresses: Vec<&str> = result
             .iter()
-            .filter_map(|e| e.get("address").and_then(|v| v.as_str()))
+            .filter_map(|e| json::str_at(e, "/address"))
             .collect();
         assert!(addresses.contains(&"a@b.com"));
         assert!(addresses.contains(&"c@d.com"));

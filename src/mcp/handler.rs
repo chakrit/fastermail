@@ -1,4 +1,5 @@
 use crate::actions::{self, contact, email, identity, mailbox, masked_email, vacation, Action, Context};
+use crate::json;
 use crate::error::Error;
 use crate::mcp::types::{
     InitializeParams, InitializeResult, ServerCapabilities, ServerInfo, ToolCallParams,
@@ -123,7 +124,7 @@ fn dispatch_tool(
                 to: str_param(args, "to"),
                 subject: str_param(args, "subject"),
                 mailbox_id: str_param(args, "mailboxId"),
-                has_attachment: args.get("hasAttachment").and_then(|v| v.as_bool()),
+                has_attachment: json::bool_at(args, "/hasAttachment"),
                 after: str_param(args, "after"),
                 before: str_param(args, "before"),
                 limit: u32_param(args, "limit"),
@@ -181,7 +182,7 @@ fn dispatch_tool(
         }
         "set_vacation_response" => {
             let action = vacation::SetVacationResponse {
-                is_enabled: args.get("isEnabled").and_then(|v| v.as_bool()),
+                is_enabled: json::bool_at(args, "/isEnabled"),
                 raw_args: args.clone(),
             };
             action.run(ctx)
@@ -328,7 +329,7 @@ mod tests {
 
         let tool_names: Vec<&str> = tools
             .iter()
-            .filter_map(|t| t.get("name").and_then(|n| n.as_str()))
+            .filter_map(|t| json::str_at(t, "/name"))
             .collect();
 
         assert!(tool_names.contains(&"list_mailboxes"));

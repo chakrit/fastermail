@@ -2,6 +2,7 @@ use crate::actions::{
     check_set_errors, find_mailbox_id_by_name, find_mailbox_id_by_role, Action, Context,
 };
 use crate::error::{Error, Result};
+use crate::json;
 use crate::jmap::types::back_reference;
 use crate::mcp::types::Tool;
 
@@ -570,12 +571,12 @@ impl SendEmail {
             }),
         )?;
 
-        let orig_email = match original.get("list").and_then(|l| l.as_array()).and_then(|a| a.first()) {
+        let orig_email = match json::array_at(&original, "/list").and_then(|a| a.first()) {
             Some(e) => e,
             None => return Ok(()),
         };
 
-        let msg_id = match orig_email.get("messageId").and_then(|v| v.as_array()).and_then(|a| a.first()) {
+        let msg_id = match json::array_at(orig_email, "/messageId").and_then(|a| a.first()) {
             Some(id) => id,
             None => return Ok(()),
         };

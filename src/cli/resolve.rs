@@ -1,4 +1,5 @@
 use crate::actions::mailbox::ListMailboxes;
+use crate::json;
 use crate::actions::{Action, Context};
 use crate::cli::io::{Io, OutputMode};
 use crate::error::{Error, Result};
@@ -74,9 +75,9 @@ fn role_for_alias(input: &str) -> Option<&'static str> {
 /// Find a mailbox by its JMAP role field.
 fn find_by_role(mailboxes: &[serde_json::Value], role: &str) -> Option<String> {
     mailboxes.iter().find_map(|m| {
-        let m_role = m.get("role").and_then(|r| r.as_str()).unwrap_or("");
+        let m_role = json::str_at(m, "/role").unwrap_or("");
         if m_role == role {
-            m.get("id").and_then(|id| id.as_str()).map(String::from)
+            json::str_at(m, "/id").map(String::from)
         } else {
             None
         }
@@ -92,8 +93,8 @@ fn match_by_name(
     let entries: Vec<(String, String)> = mailboxes
         .iter()
         .filter_map(|m| {
-            let id = m.get("id").and_then(|v| v.as_str())?;
-            let name = m.get("name").and_then(|v| v.as_str())?;
+            let id = json::str_at(m, "/id")?;
+            let name = json::str_at(m, "/name")?;
             Some((id.to_string(), name.to_string()))
         })
         .collect();

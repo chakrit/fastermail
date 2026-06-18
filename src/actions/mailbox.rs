@@ -1,4 +1,5 @@
 use crate::actions::{project_fields_array, Action, Context};
+use crate::json;
 use crate::error::{Error, Result};
 use crate::mcp::types::Tool;
 
@@ -77,7 +78,7 @@ impl Action for ListMailboxes {
             .as_array()
             .map(|arr| {
                 arr.iter()
-                    .filter(|m| m.get("role").and_then(|r| r.as_str()) == Some(&self.role))
+                    .filter(|m| json::str_at(m, "/role") == Some(&self.role))
                     .collect()
             })
             .unwrap_or_default();

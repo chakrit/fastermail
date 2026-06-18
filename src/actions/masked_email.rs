@@ -1,4 +1,5 @@
 use crate::actions::{project_fields, project_fields_array, Action, Context};
+use crate::json;
 use crate::error::{Error, Result};
 use crate::mcp::types::Tool;
 
@@ -118,7 +119,7 @@ impl Action for ListMaskedEmails {
             .as_array()
             .map(|arr| {
                 arr.iter()
-                    .filter(|m| m.get("state").and_then(|s| s.as_str()) == Some(state.label()))
+                    .filter(|m| json::str_at(m, "/state") == Some(state.label()))
                     .collect()
             })
             .unwrap_or_default();

@@ -1,4 +1,5 @@
 use clap::Subcommand;
+use crate::json;
 
 use crate::actions::masked_email::{
     CreateMaskedEmail, ListMaskedEmails, MaskedEmailState, UpdateMaskedEmail,
@@ -80,7 +81,7 @@ pub fn run(cmd: MaskedEmailCommand, ctx: &Context, io: &Io) -> Result<()> {
             io.data(&"─".repeat(110));
 
             for item in items {
-                let id = item.get("id").and_then(|v| v.as_str()).unwrap_or("?");
+                let id = json::str_at(item, "/id").unwrap_or("?");
                 let email = item
                     .get("email")
                     .and_then(|v| v.as_str())
@@ -120,11 +121,8 @@ pub fn run(cmd: MaskedEmailCommand, ctx: &Context, io: &Io) -> Result<()> {
             let value = result?;
 
             if io.mode() == OutputMode::Human {
-                let email = value
-                    .get("email")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("?");
-                let id = value.get("id").and_then(|v| v.as_str()).unwrap_or("?");
+                let email = json::str_at(&value, "/email").unwrap_or("?");
+                let id = json::str_at(&value, "/id").unwrap_or("?");
                 io.done(&format!("Created: {email} (ID: {id})"));
             } else {
                 io.json(&value);

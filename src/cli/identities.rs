@@ -1,4 +1,5 @@
 use clap::Subcommand;
+use crate::json;
 
 use crate::actions::identity::ListIdentities;
 use crate::actions::{Action, Context};
@@ -48,9 +49,9 @@ pub fn run(cmd: IdentityCommand, ctx: &Context, io: &Io) -> Result<()> {
             io.data(&"─".repeat(80));
 
             for ident in identities {
-                let id = ident.get("id").and_then(|v| v.as_str()).unwrap_or("?");
-                let name = ident.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                let email = ident.get("email").and_then(|v| v.as_str()).unwrap_or("");
+                let id = json::str_at(ident, "/id").unwrap_or("?");
+                let name = json::str_at(ident, "/name").unwrap_or("");
+                let email = json::str_at(ident, "/email").unwrap_or("");
 
                 io.data(&format!("{:<40} {:<24} {}", id, name, email));
             }

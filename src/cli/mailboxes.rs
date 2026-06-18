@@ -1,4 +1,5 @@
 use clap::Subcommand;
+use crate::json;
 
 use crate::actions::mailbox::{ListMailboxes, ManageMailbox};
 use crate::actions::{Action, Context};
@@ -137,8 +138,8 @@ fn format_mailbox_list(io: &Io, value: &serde_json::Value) {
     io.data(&"─".repeat(84));
 
     for mb in mailboxes {
-        let id = mb.get("id").and_then(|v| v.as_str()).unwrap_or("?");
-        let name = mb.get("name").and_then(|v| v.as_str()).unwrap_or("?");
+        let id = json::str_at(mb, "/id").unwrap_or("?");
+        let name = json::str_at(mb, "/name").unwrap_or("?");
         let role = mb
             .get("role")
             .and_then(|v| v.as_str())
