@@ -15,7 +15,7 @@ talking JMAP. One codebase, two front-ends: a human terminal client and an AI to
 Covers email, contacts, mailboxes, identities, vacation response, and masked email.
 Calendars are out of scope (FastMail exposes only CalDAV, no JMAP).
 
-- **Build / test**: `cargo build`, `cargo test` (107 tests), `cargo run -- <args>`.
+- **Build / test**: `cargo build`, `cargo test`, `cargo run -- <args>`.
 - **Layout**: `src/actions/` (unit-of-work structs, one per operation), `src/cli/` (clap
   subcommands), `src/jmap/` (JMAP client + types), `src/mcp/` (JSON-RPC stdio server),
   `src/testutil/` (MockJmap).

@@ -75,6 +75,17 @@ Masked emails are disposable addresses that forward to your real inbox. Great fo
 | Disable | `fm masked-emails update <id> --state disabled` |
 | Delete | `fm masked-emails update <id> --state deleted` |
 
+### Contacts
+
+| Action | CLI |
+|--------|-----|
+| List | `fm contacts list` |
+| Search | `fm contacts search -q "jane"` |
+| Create | `fm contacts create --name "Jane Doe" --email work:jane@acme.com` |
+| Update | `fm contacts update <id> --company "Acme"` |
+| Delete | `fm contacts delete <id>` |
+| Address books | `fm contacts address-books` |
+
 ## How Authentication Works
 
 FasterMail uses a **FastMail API token** to authenticate. You create one in FastMail's
@@ -83,6 +94,9 @@ settings under **Settings → Privacy & Security → API tokens**.
 The token is provided via:
 1. `FASTMAIL_API_TOKEN` environment variable (preferred), or
 2. `~/.config/fastermail/config.toml` config file
+
+Run `fm setup` for an interactive wizard that writes the config file; `fm config` prints
+the active token and where it was resolved from.
 
 On startup, FasterMail connects to FastMail's JMAP session endpoint, discovers your
 account, and is ready to go.
@@ -100,11 +114,12 @@ Key JMAP capabilities used:
 - **Submission** — sending email, identities
 - **Vacation Response** — auto-reply settings
 - **Masked Email** — FastMail's disposable address feature
+- **Contacts** — address books and contact cards (JSContact)
 
 ### MCP (Model Context Protocol)
 
 Anthropic's protocol for connecting AI assistants to external tools. FasterMail implements
-an MCP server that advertises 15 tools. The AI discovers available tools, then calls them
+an MCP server that advertises 21 tools. The AI discovers available tools, then calls them
 by name with JSON arguments.
 
 The MCP server communicates over stdin/stdout using newline-delimited JSON-RPC 2.0. All

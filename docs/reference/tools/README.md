@@ -3,9 +3,7 @@
 Each tool is an action struct implementing the unit-of-work pattern. Tool names use
 snake_case. Parameters use camelCase (matching JMAP conventions in the MCP schema).
 
-## Phase 1 — JMAP (Available Now)
-
-### Email
+## Email
 
 | Tool | Description | Spec |
 |------|-------------|------|
@@ -19,20 +17,20 @@ snake_case. Parameters use camelCase (matching JMAP conventions in the MCP schem
 | `flag_email` | Set/unset flags on emails | [flag_email.md](flag_email.md) |
 | `manage_mailbox` | Create, rename, or delete mailboxes | [manage_mailbox.md](manage_mailbox.md) |
 
-### Vacation Response
+## Vacation Response
 
 | Tool | Description | Spec |
 |------|-------------|------|
 | `get_vacation_response` | Get current vacation/auto-reply settings | [get_vacation_response.md](get_vacation_response.md) |
 | `set_vacation_response` | Enable/disable/update vacation auto-reply | [set_vacation_response.md](set_vacation_response.md) |
 
-### Identity
+## Identity
 
 | Tool | Description | Spec |
 |------|-------------|------|
 | `list_identities` | List sending identities (From addresses) | [list_identities.md](list_identities.md) |
 
-### Masked Email (FastMail-specific)
+## Masked Email (FastMail-specific)
 
 | Tool | Description | Spec |
 |------|-------------|------|
@@ -40,7 +38,7 @@ snake_case. Parameters use camelCase (matching JMAP conventions in the MCP schem
 | `create_masked_email` | Create a new masked email address | [create_masked_email.md](create_masked_email.md) |
 | `update_masked_email` | Enable/disable/delete a masked email | [update_masked_email.md](update_masked_email.md) |
 
-## Phase 2 — Contacts (JMAP, `urn:ietf:params:jmap:contacts`)
+## Contacts (`urn:ietf:params:jmap:contacts`)
 
 | Tool | Description | Spec |
 |------|-------------|------|

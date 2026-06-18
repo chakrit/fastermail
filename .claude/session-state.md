@@ -52,7 +52,7 @@ Saved: 2026-06-18 (session 17)
    - MCP server + handler (clean — no panics, full protocol compliance)
    - Actions production code (found /set error handling gaps → fixed in #17)
    - CLI + config + main (clean — WIP dead code in io.rs is signal handling prep)
-   - Specs vs implementation (mostly aligned; integration tests still missing)
+   - Specs vs implementation (mostly aligned at the time)
 
 22. ✅ **ACE onboarding (`/ace-init`)** — repo not previously ACE-shaped
    - `ace.toml`: curated skill set (general-coding, rust-coding, markdown-writing,
@@ -68,8 +68,6 @@ Saved: 2026-06-18 (session 17)
 ### Immediate
 - [ ] **Refactor `extract_body_content`** — the nested `if let Some` pyramid in email.rs
       needs a helper to extract body part values cleanly (e.g. `resolve_body_part(body_values, parts)`)
-- [ ] **Integration tests** (`tests/integration.rs`) — spawn binary, pipe JSON-RPC, verify
-      end-to-end MCP handshake + tools/list + tools/call. Spec exists in specs/testing.md §6.
 
 ### Later
 - [ ] **Local caching layer** — cache mailbox lists, identities to avoid repeated JMAP calls

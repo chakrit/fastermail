@@ -524,168 +524,7 @@ mod tests {
 }
 ```
 
-### 6 Integration Tests
-
-Location: `tests/integration.rs` (standard Rust integration test directory).
-
-These tests spawn the `fastermail` binary as a child process, pipe JSON-RPC
-messages over stdin/stdout, and verify end-to-end behavior.
-
-#### 6.1 What to Test
-
-| Test                              | Validates                                         |
-|-----------------------------------|---------------------------------------------------|
-| Full handshake sequence           | `initialize` -> capabilities -> `initialized`     |
-| `tools/list` after init           | Returns all tool definitions with correct schemas  |
-| `tools/call` with a simple tool   | End-to-end through MCP -> action -> JMAP -> response |
-| Missing API token exits with error | Process exits 1, stderr contains message          |
-| Malformed JSON-RPC on stdin       | Error response, process stays alive               |
-| stdin EOF causes clean exit       | Process exits 0                                   |
-
-#### 6.2 Test Harness
-
-Integration tests need the mock JMAP server running in-process while the binary
-runs as a child process. The mock server binds to a localhost port; the binary
-is configured (via environment variable) to use that URL instead of
-`https://api.fastmail.com`.
-
-To support this, the binary should accept an optional `JMAP_SESSION_URL`
-environment variable that overrides the default FastMail session URL. This is
-the only test-only affordance in production code — a single `env::var` fallback.
-
-```rust
-// In src/main.rs or src/jmap/client.rs — production code
-fn session_url() -> String {
-    std::env::var("JMAP_SESSION_URL")
-        .unwrap_or_else(|_| "https://api.fastmail.com/jmap/session".to_string())
-}
-```
-
-#### 6.3 Test Pattern
-
-```rust
-// tests/integration.rs
-
-use std::io::{BufRead, BufReader, Write};
-use std::process::{Command, Stdio};
-
-use serde_json::json;
-
-/// Send a JSON-RPC message and read the response line.
-fn send_and_receive(
-    stdin: &mut impl Write,
-    stdout: &mut impl BufRead,
-    message: serde_json::Value,
-) -> serde_json::Value {
-    let mut line = serde_json::to_string(&message)
-        .expect("message should serialize");
-    line.push('\n');
-    stdin.write_all(line.as_bytes())
-        .expect("should write to stdin");
-    stdin.flush().expect("should flush stdin");
-
-    let mut response_line = String::new();
-    stdout.read_line(&mut response_line)
-        .expect("should read response line");
-    serde_json::from_str(&response_line)
-        .expect("response should be valid JSON")
-}
-
-#[test]
-fn full_handshake_and_tools_list() {
-    let mock = httpmock::MockServer::start();
-    // Configure session endpoint on the mock (same pattern as MockJmap)
-    mock.mock(|when, then| {
-        when.method(httpmock::Method::GET).path("/jmap/session");
-        then.status(200)
-            .header("content-type", "application/json")
-            .json_body(json!({
-                "primaryAccounts": {
-                    "urn:ietf:params:jmap:core": "u123"
-                },
-                "accounts": { "u123": { "name": "test@fastmail.com" } },
-                "apiUrl": format!("{}/jmap/api/", mock.base_url()),
-                "capabilities": {}
-            }));
-    });
-
-    let mut child = Command::new(env!("CARGO_BIN_EXE_fastermail"))
-        .env("FASTMAIL_API_TOKEN", "fake-token")
-        .env("JMAP_SESSION_URL", format!("{}/jmap/session", mock.base_url()))
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("should spawn fastermail binary");
-
-    let mut stdin = child.stdin.take().expect("should have stdin");
-    let mut stdout = BufReader::new(child.stdout.take().expect("should have stdout"));
-
-    // Step 1: initialize
-    let init_response = send_and_receive(&mut stdin, &mut stdout, json!({
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "initialize",
-        "params": {
-            "protocolVersion": "2025-11-25",
-            "capabilities": {},
-            "clientInfo": { "name": "test", "version": "1.0" }
-        }
-    }));
-    assert_eq!(init_response["result"]["protocolVersion"], "2025-11-25");
-
-    // Step 2: notifications/initialized (no response expected)
-    let mut notif = serde_json::to_string(&json!({
-        "jsonrpc": "2.0",
-        "method": "notifications/initialized"
-    })).expect("notification should serialize");
-    notif.push('\n');
-    stdin.write_all(notif.as_bytes()).expect("should write notification");
-    stdin.flush().expect("should flush");
-
-    // Step 3: tools/list
-    let list_response = send_and_receive(&mut stdin, &mut stdout, json!({
-        "jsonrpc": "2.0",
-        "id": 2,
-        "method": "tools/list",
-        "params": {}
-    }));
-    let tools = list_response["result"]["tools"]
-        .as_array()
-        .expect("tools should be an array");
-    assert!(!tools.is_empty(), "should have at least one tool");
-
-    // Verify each tool has required fields
-    for tool in tools {
-        assert!(tool["name"].is_string(), "tool should have a name");
-        assert!(tool["description"].is_string(), "tool should have a description");
-        assert!(tool["inputSchema"].is_object(), "tool should have an inputSchema");
-    }
-
-    // Clean shutdown
-    drop(stdin);
-    let status = child.wait().expect("should wait for child");
-    assert!(status.success(), "should exit cleanly on stdin EOF");
-}
-
-#[test]
-fn missing_api_token_exits_with_error() {
-    let output = Command::new(env!("CARGO_BIN_EXE_fastermail"))
-        .env_remove("FASTMAIL_API_TOKEN")
-        .output()
-        .expect("should run fastermail");
-
-    assert!(!output.status.success(), "should exit with non-zero status");
-
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("FASTMAIL_API_TOKEN"),
-        "stderr should mention the missing token: {stderr}"
-    );
-}
-```
-
-### 7 What NOT to Test
+### 6 What NOT to Test
 
 Per the coding conventions, these are explicitly out of scope:
 
@@ -700,33 +539,34 @@ Per the coding conventions, these are explicitly out of scope:
 Focus test effort on: branching logic, parameter validation, response
 transformation, error mapping, and dispatch routing.
 
-### 8 Test Organization Summary
+### 7 Test Organization Summary
 
 ```
 src/
+├── config.rs              # #[cfg(test)] mod tests — token resolution
 ├── testutil/
 │   ├── mod.rs              # #[cfg(test)] pub mod mock_jmap;
 │   └── mock_jmap.rs        # MockJmap builder, canned session, helper methods
 ├── mcp/
 │   ├── types.rs            # #[cfg(test)] mod tests — JSON-RPC parsing
-│   ├── server.rs           # #[cfg(test)] mod tests — dispatch, handshake
-│   └── handler.rs          # #[cfg(test)] mod tests — tool routing
+│   └── handler.rs          # #[cfg(test)] mod tests — tool routing + dispatch
 ├── jmap/
 │   ├── client.rs           # #[cfg(test)] mod tests — session, requests, errors
 │   └── types.rs            # #[cfg(test)] mod tests — filter/request building logic
+├── cli/
+│   ├── resolve.rs          # #[cfg(test)] mod tests — mailbox resolution
+│   └── contacts.rs         # #[cfg(test)] mod tests — typed-value parsing
 └── actions/
+    ├── mod.rs              # #[cfg(test)] mod tests — shared action helpers
     ├── email.rs            # #[cfg(test)] mod tests — email actions
     ├── mailbox.rs          # #[cfg(test)] mod tests — mailbox actions
     ├── vacation.rs         # #[cfg(test)] mod tests — vacation response actions
     ├── masked_email.rs     # #[cfg(test)] mod tests — masked email actions
     ├── identity.rs         # #[cfg(test)] mod tests — identity actions
-    └── contact.rs          # #[cfg(test)] mod tests — contact actions (Phase 2)
-
-tests/
-└── integration.rs          # End-to-end: spawn binary, pipe JSON-RPC, verify
+    └── contact.rs          # #[cfg(test)] mod tests — contact actions
 ```
 
-### 9 Conventions
+### 8 Conventions
 
 - **`.expect("reason")` everywhere** — never `.unwrap()` in tests. The reason
   string is the first thing you see when a test fails.

@@ -65,13 +65,17 @@ fm masked-emails list       List masked email addresses
 fm masked-emails create     Create a new masked email address
 fm masked-emails update     Enable/disable/delete a masked email
 
-# Contacts (Phase 2)
+# Contacts
 fm contacts list            List contacts
 fm contacts search          Search contacts
 fm contacts create          Create a new contact
 fm contacts update          Update a contact
 fm contacts delete          Delete a contact
 fm contacts address-books   List address books
+
+# Configuration
+fm setup                    Interactive first-time setup (writes config file)
+fm config                   Print active token and its source
 ```
 
 ### Top-Level Shortcuts
@@ -126,7 +130,9 @@ fm emails list --mailbox archive  # role alias → Archive
 
 ## Output Modes
 
-Every command supports three output formats:
+`--json` and `--raw` are **global flags** defined on the root command (`global = true`), so
+they apply to every subcommand whether or not it is re-listed below. Every command supports
+three output formats:
 
 | Mode | Flag | When | Description |
 |------|------|------|-------------|

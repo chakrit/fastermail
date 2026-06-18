@@ -9,8 +9,10 @@ fastermail/
 ├── docs/                    # Specs, references, guides (see docs/README.md)
 ├── .claude/skills/          # Coding convention files (ACE-managed symlinks)
 ├── src/
-│   ├── main.rs              # Entry point: read env, init session, run server loop
+│   ├── main.rs              # Entry: load .env, init logging, parse CLI, route MCP/CLI
 │   ├── error.rs             # Single error enum for the crate
+│   ├── config.rs            # Token resolution (env var → ~/.config/fastermail/config.toml)
+│   ├── logging.rs           # Leveled stderr logging (FASTERMAIL_LOG)
 │   ├── recorder.rs          # Request/response recording for test data capture
 │   ├── mcp/
 │   │   ├── mod.rs           # MCP module root
@@ -21,17 +23,29 @@ fastermail/
 │   │   ├── mod.rs           # JMAP module root
 │   │   ├── client.rs        # HTTP client, session management, JMAP request builder
 │   │   └── types.rs         # JMAP request/response types, filter builders
+│   ├── cli/
+│   │   ├── mod.rs           # clap command tree + MCP/CLI routing
+│   │   ├── io.rs            # Output modes (human/JSON/raw), TTY detection
+│   │   ├── resolve.rs       # Mailbox resolution (role aliases, fuzzy match)
+│   │   ├── emails.rs        # Email subcommands
+│   │   ├── mailboxes.rs     # Mailbox subcommands
+│   │   ├── identities.rs    # Identity subcommands
+│   │   ├── vacation.rs      # Vacation subcommands
+│   │   ├── masked_emails.rs # Masked email subcommands
+│   │   └── contacts.rs      # Contact subcommands
+│   ├── testutil/            # #[cfg(test)] only
+│   │   └── mock_jmap.rs     # MockJmap test harness
 │   └── actions/
-│       ├── mod.rs           # Action trait + registry
+│       ├── mod.rs           # Action trait + registry + Context
 │       ├── email.rs         # Email action structs
 │       ├── mailbox.rs       # Mailbox action structs
 │       ├── vacation.rs      # Vacation response action structs
 │       ├── masked_email.rs  # Masked email action structs
-│       └── identity.rs      # Identity action structs
+│       ├── identity.rs      # Identity action structs
+│       └── contact.rs       # Contact action structs (JSContact flattening)
 ```
 
-Phase 2 action file (`contact.rs`) will be added when contacts
-implementation begins. Calendars dropped (no JMAP capability).
+Calendars are out of scope — FastMail exposes no `jmap:calendars` capability (CalDAV only).
 
 ## Key Types
 
@@ -68,6 +82,10 @@ enum Error {
 | `FASTERMAIL_RECORD_DIR` | no | Directory to write request/response recordings |
 | `FASTERMAIL_LOG` | no | Log level: `error`, `warn`, `info`, `debug`, `trace` (default: `info`) |
 
+At startup `main.rs` loads `.env` then `.env.local` (local overrides base) before reading
+these. The API token also resolves from `~/.config/fastermail/config.toml` when
+`FASTMAIL_API_TOKEN` is unset — the env var wins. See `config.rs`.
+
 ## Record Mode
 
 Set `FASTERMAIL_RECORD_DIR` to a directory path to capture all traffic as JSON files.
@@ -90,6 +108,11 @@ Guiding principle: minimize compile time.
 | `serde_json`    | JSON parsing                   | Required, no alternative        |
 | `ureq`          | HTTP client                    | Blocking, minimal, fast compile. No async runtime needed — stdio is inherently sequential |
 | `thiserror`     | Error derive macros            | Tiny, zero runtime cost         |
+| `clap`          | CLI arg parsing (derive)       | Derive-based command tree for the `fm` CLI |
+| `inquire`       | Interactive prompts            | `fm setup` token wizard         |
+| `indicatif`     | Progress spinners              | CLI human-mode feedback         |
+| `console`       | Terminal styling               | Colors / status glyphs in human output |
+| `toml`          | Config-file parsing            | Reads `~/.config/fastermail/config.toml` |
 
 **No async runtime.** The MCP stdio server reads one message, processes it, writes a response.
 There is no concurrency — `ureq` (blocking HTTP) is sufficient and avoids pulling in `tokio`

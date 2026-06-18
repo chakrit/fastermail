@@ -3,9 +3,9 @@
 FasterMail is an MCP (Model Context Protocol) server written in Rust that exposes FastMail's
 APIs to AI assistants. It communicates over stdio using JSON-RPC 2.0.
 
-**Phase 1 (JMAP):** Email, sending, vacation response, masked email — all available via JMAP today.
-**Phase 2 (JMAP):** Contacts — verified available via `urn:ietf:params:jmap:contacts`.
-Calendars dropped (FastMail only exposes CalDAV, no JMAP capability).
+All capabilities ship today via JMAP: email, sending, vacation response, masked email, and
+contacts (`urn:ietf:params:jmap:contacts`). Calendars are out of scope — FastMail exposes
+only CalDAV, no JMAP capability.
 
 ## Design Decisions
 
@@ -31,13 +31,22 @@ Calendars dropped (FastMail only exposes CalDAV, no JMAP capability).
 
 ## Startup Flow
 
-1. Read `FASTMAIL_API_TOKEN` from env. If unset, print error to stderr and exit 1.
-2. Fetch JMAP session from `https://api.fastmail.com/jmap/session`.
-3. Extract `apiUrl` and primary `accountId`.
-4. Enter stdio read loop — wait for `initialize` request.
-5. Respond with capabilities, wait for `initialized` notification.
-6. Enter main loop: read request → dispatch → write response.
-7. On stdin EOF, clean up and exit 0.
+Common to both modes (`main.rs`):
+
+1. Load `.env`, then `.env.local` (local overrides base; missing files are fine).
+2. Initialize logging from `FASTERMAIL_LOG` (stderr only).
+3. Parse CLI args. No subcommand → print help and exit. `fm mcp` selects MCP mode; any
+   `fm <resource> <verb>` selects that CLI command.
+
+Commands that talk to FastMail (everything but `fm setup` / `fm config` / help) then:
+
+4. Resolve the API token — `FASTMAIL_API_TOKEN`, else `~/.config/fastermail/config.toml`.
+   If unset, print to stderr and exit 1.
+5. Fetch the JMAP session, extract `apiUrl` + primary `accountId`, build a `Context`.
+
+MCP mode then enters the stdio loop: `initialize` → capabilities → `initialized`, then
+read request → dispatch → write response, exiting 0 on stdin EOF. CLI mode runs the one
+resolved command against the `Context` and exits.
 
 ## Error Strategy
 
@@ -46,3 +55,5 @@ Calendars dropped (FastMail only exposes CalDAV, no JMAP capability).
 - **Tool errors** (JMAP call failed, invalid params): successful JSON-RPC response with
   `isError: true` and descriptive text content — lets the LLM retry with adjusted params.
 - **One error enum** for the entire crate. No nested wrapper enums.
+- **CLI exit codes** (`main.rs::exit_code`): 1 = startup error (missing token, I/O, JSON),
+  2 = invalid arguments (`InvalidParams`), 3 = API error (`Jmap`, `Http`).

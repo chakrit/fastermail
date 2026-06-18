@@ -47,11 +47,6 @@ Bearer token in the `Authorization` header for all requests. The token format is
 | `urn:ietf:params:jmap:submission`           | Sending    |
 | `urn:ietf:params:jmap:vacationresponse`     | Vacation Response |
 | `https://www.fastmail.com/dev/maskedemail`  | Masked Email (FastMail-specific) |
-
-### Phase 2
-
-| Capability URI                              | Domain     |
-|---------------------------------------------|------------|
 | `urn:ietf:params:jmap:contacts`             | Contacts (RFC 9610, JSContact RFC 9553) |
 
 **JMAP Contacts methods:** `AddressBook/get`, `ContactCard/get`, `ContactCard/query`,
