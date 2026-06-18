@@ -65,8 +65,12 @@ sed -i '' "s|^  version .*|  version \"$VERSION\"|" "$FORMULA"
 sed -i '' "s|^  url .*|  url \"$URL\"|" "$FORMULA"
 sed -i '' "s|^  sha256 .*|  sha256 \"$EXPECTED_SHA\"|" "$FORMULA"
 
+# On the first release the tree may already be at $VERSION, leaving nothing to
+# commit — tag the current HEAD in that case rather than failing on an empty commit.
 git add Cargo.toml Cargo.lock
-git commit -m "$TAG"
+if ! git diff --cached --quiet; then
+  git commit -m "$TAG"
+fi
 git tag "$TAG"
 
 echo "==> Pushing to gh"
