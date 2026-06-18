@@ -25,7 +25,10 @@ impl Action for ListIdentities {
             serde_json::json!({ "accountId": ctx.account_id }),
         )?;
 
-        let list = data.get("list").cloned().unwrap_or(serde_json::json!([]));
+        let list = data
+            .get("list")
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!([]));
         Ok(project_fields_array(&list, LIST_FIELDS))
     }
 }

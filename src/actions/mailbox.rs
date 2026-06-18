@@ -2,6 +2,7 @@ use crate::actions::{project_fields_array, Action, Context};
 use crate::error::{Error, Result};
 use crate::mcp::types::Tool;
 
+const CAPABILITY: &str = "urn:ietf:params:jmap:mail";
 const LIST_FIELDS: &[&str] = &["id", "name", "role", "totalEmails", "unreadEmails", "parentId"];
 
 pub fn tools() -> Vec<Tool> {
@@ -61,7 +62,7 @@ impl Action for ListMailboxes {
         });
 
         let data = ctx.jmap.call_one(
-            "urn:ietf:params:jmap:mail",
+            CAPABILITY,
             "Mailbox/get",
             args,
         )?;
@@ -139,7 +140,7 @@ impl Action for ManageMailbox {
                     "accountId": ctx.account_id,
                     "create": { "new-mailbox": create_obj }
                 });
-                let data = ctx.jmap.call_one("urn:ietf:params:jmap:mail", "Mailbox/set", args)?;
+                let data = ctx.jmap.call_one(CAPABILITY, "Mailbox/set", args)?;
 
                 Ok(serde_json::json!({
                     "success": true,
@@ -153,7 +154,7 @@ impl Action for ManageMailbox {
                     "accountId": ctx.account_id,
                     "update": { mailbox_id.clone(): { "name": name } }
                 });
-                ctx.jmap.call_one("urn:ietf:params:jmap:mail", "Mailbox/set", args)?;
+                ctx.jmap.call_one(CAPABILITY, "Mailbox/set", args)?;
 
                 Ok(serde_json::json!({ "success": true, "mailboxId": mailbox_id }))
             }
@@ -162,7 +163,7 @@ impl Action for ManageMailbox {
                     "accountId": ctx.account_id,
                     "destroy": [mailbox_id]
                 });
-                ctx.jmap.call_one("urn:ietf:params:jmap:mail", "Mailbox/set", args)?;
+                ctx.jmap.call_one(CAPABILITY, "Mailbox/set", args)?;
 
                 Ok(serde_json::json!({ "success": true, "mailboxId": mailbox_id }))
             }

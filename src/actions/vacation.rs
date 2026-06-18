@@ -48,7 +48,7 @@ impl Action for GetVacationResponse {
             .and_then(|l| l.as_array())
             .and_then(|arr| arr.first())
             .cloned()
-            .unwrap_or(serde_json::json!({}));
+            .unwrap_or_else(|| serde_json::json!({}));
 
         Ok(project_fields(&vacation, GET_FIELDS))
     }

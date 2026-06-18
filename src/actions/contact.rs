@@ -224,9 +224,8 @@ fn extract_full_name(card: &serde_json::Value) -> String {
 
 /// Flatten JSContact Id[EmailAddress] map into [{type, address}].
 fn flatten_email_map(emails: Option<&serde_json::Value>) -> Vec<serde_json::Value> {
-    let map = match emails.and_then(|v| v.as_object()) {
-        Some(m) => m,
-        None => return Vec::new(),
+    let Some(map) = emails.and_then(|v| v.as_object()) else {
+        return Vec::new();
     };
 
     map.values()
@@ -240,9 +239,8 @@ fn flatten_email_map(emails: Option<&serde_json::Value>) -> Vec<serde_json::Valu
 
 /// Flatten JSContact Id[Phone] map into [{type, number}].
 fn flatten_phone_map(phones: Option<&serde_json::Value>) -> Vec<serde_json::Value> {
-    let map = match phones.and_then(|v| v.as_object()) {
-        Some(m) => m,
-        None => return Vec::new(),
+    let Some(map) = phones.and_then(|v| v.as_object()) else {
+        return Vec::new();
     };
 
     map.values()
@@ -256,9 +254,8 @@ fn flatten_phone_map(phones: Option<&serde_json::Value>) -> Vec<serde_json::Valu
 
 /// Derive a type label from JSContact `contexts` map.
 fn context_type(entry: &serde_json::Value) -> &str {
-    let contexts = match entry.get("contexts").and_then(|v| v.as_object()) {
-        Some(c) => c,
-        None => return "other",
+    let Some(contexts) = entry.get("contexts").and_then(|v| v.as_object()) else {
+        return "other";
     };
 
     if contexts.contains_key("work") {
