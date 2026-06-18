@@ -5,6 +5,10 @@ use crate::mcp::types::Tool;
 
 const CAPABILITY: &str = "urn:ietf:params:jmap:contacts";
 
+/// Default max results when the caller leaves `limit` unset (0).
+const DEFAULT_GET_LIMIT: u32 = 50;
+const DEFAULT_SEARCH_LIMIT: u32 = 20;
+
 const AB_LIST_FIELDS: &[&str] = &["id", "name", "description", "isDefault"];
 
 pub fn tools() -> Vec<Tool> {
@@ -356,7 +360,11 @@ pub struct GetContacts {
 
 impl Action for GetContacts {
     fn run(&self, ctx: &Context) -> Result<serde_json::Value> {
-        let limit = if self.limit == 0 { 50 } else { self.limit };
+        let limit = if self.limit == 0 {
+            DEFAULT_GET_LIMIT
+        } else {
+            self.limit
+        };
 
         let mut filter = serde_json::json!({});
         if !self.address_book_id.is_empty() {
@@ -414,7 +422,11 @@ impl Action for SearchContacts {
             return Err(Error::InvalidParams("query is required".to_string()));
         }
 
-        let limit = if self.limit == 0 { 20 } else { self.limit };
+        let limit = if self.limit == 0 {
+            DEFAULT_SEARCH_LIMIT
+        } else {
+            self.limit
+        };
 
         let using = vec![
             "urn:ietf:params:jmap:core".to_string(),

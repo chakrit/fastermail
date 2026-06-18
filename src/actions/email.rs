@@ -46,6 +46,17 @@ fn resolve_body_part(
         .cloned()
 }
 
+/// Default max results when the caller leaves `limit` unset (0).
+const DEFAULT_LIMIT: u32 = 20;
+
+/// Build JMAP address objects (`[{ "email": addr }, ...]`) from a list of addresses.
+fn address_objects(addrs: &[String]) -> Vec<serde_json::Value> {
+    addrs
+        .iter()
+        .map(|addr| serde_json::json!({ "email": addr }))
+        .collect()
+}
+
 pub fn tools() -> Vec<Tool> {
     vec![
         Tool {
@@ -159,7 +170,11 @@ pub struct GetEmails {
 impl Action for GetEmails {
     fn run(&self, ctx: &Context) -> Result<serde_json::Value> {
         let mailbox_id = self.resolve_mailbox_id(ctx)?;
-        let limit = if self.limit == 0 { 20 } else { self.limit };
+        let limit = if self.limit == 0 {
+            DEFAULT_LIMIT
+        } else {
+            self.limit
+        };
 
         let using = vec![
             "urn:ietf:params:jmap:core".to_string(),
@@ -254,7 +269,11 @@ pub struct SearchEmails {
 impl Action for SearchEmails {
     fn run(&self, ctx: &Context) -> Result<serde_json::Value> {
         let filter = self.build_filter()?;
-        let limit = if self.limit == 0 { 20 } else { self.limit };
+        let limit = if self.limit == 0 {
+            DEFAULT_LIMIT
+        } else {
+            self.limit
+        };
 
         let using = vec![
             "urn:ietf:params:jmap:core".to_string(),
@@ -456,11 +475,7 @@ impl Action for SendEmail {
             .and_then(|v| v.as_str())
             .unwrap_or("");
 
-        let to_addrs: Vec<serde_json::Value> = self
-            .to
-            .iter()
-            .map(|addr| serde_json::json!({ "email": addr }))
-            .collect();
+        let to_addrs = address_objects(&self.to);
 
         let body_type = if self.is_html { "text/html" } else { "text/plain" };
         let body_part = serde_json::json!({
@@ -485,21 +500,11 @@ impl Action for SendEmail {
         }
 
         if !self.cc.is_empty() {
-            let cc_addrs: Vec<serde_json::Value> = self
-                .cc
-                .iter()
-                .map(|addr| serde_json::json!({ "email": addr }))
-                .collect();
-            email_obj["cc"] = serde_json::json!(cc_addrs);
+            email_obj["cc"] = serde_json::json!(address_objects(&self.cc));
         }
 
         if !self.bcc.is_empty() {
-            let bcc_addrs: Vec<serde_json::Value> = self
-                .bcc
-                .iter()
-                .map(|addr| serde_json::json!({ "email": addr }))
-                .collect();
-            email_obj["bcc"] = serde_json::json!(bcc_addrs);
+            email_obj["bcc"] = serde_json::json!(address_objects(&self.bcc));
         }
 
         if !self.in_reply_to.is_empty() {
