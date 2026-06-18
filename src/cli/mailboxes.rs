@@ -54,10 +54,8 @@ pub fn run(cmd: MailboxCommand, ctx: &Context, io: &Io) -> Result<()> {
         }
         MailboxCommand::Create { name, parent_id } => {
             let spinner = io.progress("Creating mailbox…");
-            let action = ManageMailbox {
-                action: "create".to_string(),
+            let action = ManageMailbox::Create {
                 name: name.clone(),
-                mailbox_id: String::new(),
                 parent_id: parent_id.unwrap_or_default(),
             };
             let result = action.run(ctx);
@@ -79,11 +77,9 @@ pub fn run(cmd: MailboxCommand, ctx: &Context, io: &Io) -> Result<()> {
             new_name,
         } => {
             let spinner = io.progress("Renaming mailbox…");
-            let action = ManageMailbox {
-                action: "rename".to_string(),
-                name: new_name.clone(),
+            let action = ManageMailbox::Rename {
                 mailbox_id,
-                parent_id: String::new(),
+                name: new_name.clone(),
             };
             let result = action.run(ctx);
             Io::finish_progress(spinner);
@@ -96,11 +92,8 @@ pub fn run(cmd: MailboxCommand, ctx: &Context, io: &Io) -> Result<()> {
         }
         MailboxCommand::Delete { mailbox_id } => {
             let spinner = io.progress("Deleting mailbox…");
-            let action = ManageMailbox {
-                action: "delete".to_string(),
-                name: String::new(),
+            let action = ManageMailbox::Delete {
                 mailbox_id: mailbox_id.clone(),
-                parent_id: String::new(),
             };
             let result = action.run(ctx);
             Io::finish_progress(spinner);

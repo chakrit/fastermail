@@ -99,12 +99,12 @@ fn dispatch_tool(
             action.run(ctx)
         }
         "manage_mailbox" => {
-            let action = mailbox::ManageMailbox {
-                action: str_param(args, "action"),
-                name: str_param(args, "name"),
-                mailbox_id: str_param(args, "mailboxId"),
-                parent_id: str_param(args, "parentId"),
-            };
+            let action = mailbox::ManageMailbox::parse(
+                &str_param(args, "action"),
+                str_param(args, "name"),
+                str_param(args, "mailboxId"),
+                str_param(args, "parentId"),
+            )?;
             action.run(ctx)
         }
         "get_emails" => {

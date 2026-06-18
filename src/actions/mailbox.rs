@@ -85,42 +85,61 @@ impl Action for ListMailboxes {
     }
 }
 
-pub struct ManageMailbox {
-    pub action: String,
-    pub name: String,
-    pub mailbox_id: String,
-    pub parent_id: String,
+/// Create, rename, or delete a mailbox. The variant carries exactly the fields
+/// its operation needs — no dead companion fields, no invalid action strings.
+#[derive(Debug)]
+pub enum ManageMailbox {
+    Create { name: String, parent_id: String },
+    Rename { mailbox_id: String, name: String },
+    Delete { mailbox_id: String },
+}
+
+impl ManageMailbox {
+    /// Parse the MCP `manage_mailbox` arguments into a variant, validating that
+    /// each operation's required fields are present. This is the MCP trust boundary;
+    /// CLI callers construct the variant directly.
+    pub fn parse(action: &str, name: String, mailbox_id: String, parent_id: String) -> Result<Self> {
+        match action {
+            "create" if name.is_empty() => {
+                Err(Error::InvalidParams("name is required for create".to_string()))
+            }
+            "create" => Ok(Self::Create { name, parent_id }),
+
+            "rename" if mailbox_id.is_empty() => {
+                Err(Error::InvalidParams("mailboxId is required for rename".to_string()))
+            }
+            "rename" if name.is_empty() => {
+                Err(Error::InvalidParams("name is required for rename".to_string()))
+            }
+            "rename" => Ok(Self::Rename { mailbox_id, name }),
+
+            "delete" if mailbox_id.is_empty() => {
+                Err(Error::InvalidParams("mailboxId is required for delete".to_string()))
+            }
+            "delete" => Ok(Self::Delete { mailbox_id }),
+
+            "" => Err(Error::InvalidParams("action is required".to_string())),
+            _ => Err(Error::InvalidParams(
+                "action must be create, rename, or delete".to_string(),
+            )),
+        }
+    }
 }
 
 impl Action for ManageMailbox {
     fn run(&self, ctx: &Context) -> Result<serde_json::Value> {
-        if self.action.is_empty() {
-            return Err(Error::InvalidParams("action is required".to_string()));
-        }
-
-        match self.action.as_str() {
-            "create" => {
-                if self.name.is_empty() {
-                    return Err(Error::InvalidParams(
-                        "name is required for create".to_string(),
-                    ));
-                }
-
-                let mut create_obj = serde_json::json!({ "name": self.name });
-                if !self.parent_id.is_empty() {
-                    create_obj["parentId"] = serde_json::json!(self.parent_id);
+        match self {
+            Self::Create { name, parent_id } => {
+                let mut create_obj = serde_json::json!({ "name": name });
+                if !parent_id.is_empty() {
+                    create_obj["parentId"] = serde_json::json!(parent_id);
                 }
 
                 let args = serde_json::json!({
                     "accountId": ctx.account_id,
                     "create": { "new-mailbox": create_obj }
                 });
-
-                let data = ctx.jmap.call_one(
-                    "urn:ietf:params:jmap:mail",
-                    "Mailbox/set",
-                    args,
-                )?;
+                let data = ctx.jmap.call_one("urn:ietf:params:jmap:mail", "Mailbox/set", args)?;
 
                 Ok(serde_json::json!({
                     "success": true,
@@ -129,62 +148,24 @@ impl Action for ManageMailbox {
                         .and_then(|m| m.get("id"))
                 }))
             }
-            "rename" => {
-                if self.mailbox_id.is_empty() {
-                    return Err(Error::InvalidParams(
-                        "mailboxId is required for rename".to_string(),
-                    ));
-                }
-                if self.name.is_empty() {
-                    return Err(Error::InvalidParams(
-                        "name is required for rename".to_string(),
-                    ));
-                }
-
+            Self::Rename { mailbox_id, name } => {
                 let args = serde_json::json!({
                     "accountId": ctx.account_id,
-                    "update": {
-                        self.mailbox_id.clone(): { "name": self.name }
-                    }
+                    "update": { mailbox_id.clone(): { "name": name } }
                 });
+                ctx.jmap.call_one("urn:ietf:params:jmap:mail", "Mailbox/set", args)?;
 
-                ctx.jmap.call_one(
-                    "urn:ietf:params:jmap:mail",
-                    "Mailbox/set",
-                    args,
-                )?;
-
-                Ok(serde_json::json!({
-                    "success": true,
-                    "mailboxId": self.mailbox_id
-                }))
+                Ok(serde_json::json!({ "success": true, "mailboxId": mailbox_id }))
             }
-            "delete" => {
-                if self.mailbox_id.is_empty() {
-                    return Err(Error::InvalidParams(
-                        "mailboxId is required for delete".to_string(),
-                    ));
-                }
-
+            Self::Delete { mailbox_id } => {
                 let args = serde_json::json!({
                     "accountId": ctx.account_id,
-                    "destroy": [self.mailbox_id]
+                    "destroy": [mailbox_id]
                 });
+                ctx.jmap.call_one("urn:ietf:params:jmap:mail", "Mailbox/set", args)?;
 
-                ctx.jmap.call_one(
-                    "urn:ietf:params:jmap:mail",
-                    "Mailbox/set",
-                    args,
-                )?;
-
-                Ok(serde_json::json!({
-                    "success": true,
-                    "mailboxId": self.mailbox_id
-                }))
+                Ok(serde_json::json!({ "success": true, "mailboxId": mailbox_id }))
             }
-            _ => Err(Error::InvalidParams(
-                "action must be create, rename, or delete".to_string(),
-            )),
         }
     }
 }
@@ -309,129 +290,48 @@ mod tests {
         assert!(arr.is_empty());
     }
 
+    fn parse(action: &str, name: &str, mailbox_id: &str, parent_id: &str) -> Result<ManageMailbox> {
+        ManageMailbox::parse(
+            action,
+            name.to_string(),
+            mailbox_id.to_string(),
+            parent_id.to_string(),
+        )
+    }
+
     #[test]
     fn manage_mailbox_requires_action() {
-        let client = JmapClient::new("http://localhost:0".to_string(), "fake".to_string());
-        let ctx = Context {
-            jmap: client,
-            account_id: "test".to_string(),
-            recorder: None,
-        };
-
-        let action = ManageMailbox {
-            action: String::new(),
-            name: String::new(),
-            mailbox_id: String::new(),
-            parent_id: String::new(),
-        };
-        let err = action.run(&ctx).expect_err("should fail without action");
-
+        let err = parse("", "", "", "").expect_err("should fail without action");
         assert!(matches!(err, Error::InvalidParams(_)));
     }
 
     #[test]
     fn manage_mailbox_create_requires_name() {
-        let client = JmapClient::new("http://localhost:0".to_string(), "fake".to_string());
-        let ctx = Context {
-            jmap: client,
-            account_id: "test".to_string(),
-            recorder: None,
-        };
-
-        let action = ManageMailbox {
-            action: "create".to_string(),
-            name: String::new(),
-            mailbox_id: String::new(),
-            parent_id: String::new(),
-        };
-        let err = action.run(&ctx).expect_err("should fail without name");
-
+        let err = parse("create", "", "", "").expect_err("should fail without name");
         assert!(matches!(err, Error::InvalidParams(_)));
     }
 
     #[test]
     fn manage_mailbox_rename_requires_mailbox_id() {
-        let client = JmapClient::new("http://localhost:0".to_string(), "fake".to_string());
-        let ctx = Context {
-            jmap: client,
-            account_id: "test".to_string(),
-            recorder: None,
-        };
-
-        let action = ManageMailbox {
-            action: "rename".to_string(),
-            name: "NewName".to_string(),
-            mailbox_id: String::new(),
-            parent_id: String::new(),
-        };
-        let err = action
-            .run(&ctx)
-            .expect_err("should fail without mailbox_id");
-
+        let err = parse("rename", "NewName", "", "").expect_err("should fail without mailbox_id");
         assert!(matches!(err, Error::InvalidParams(_)));
     }
 
     #[test]
     fn manage_mailbox_rename_requires_name() {
-        let client = JmapClient::new("http://localhost:0".to_string(), "fake".to_string());
-        let ctx = Context {
-            jmap: client,
-            account_id: "test".to_string(),
-            recorder: None,
-        };
-
-        let action = ManageMailbox {
-            action: "rename".to_string(),
-            name: String::new(),
-            mailbox_id: "mb1".to_string(),
-            parent_id: String::new(),
-        };
-        let err = action.run(&ctx).expect_err("should fail without name");
-
+        let err = parse("rename", "", "mb1", "").expect_err("should fail without name");
         assert!(matches!(err, Error::InvalidParams(_)));
     }
 
     #[test]
     fn manage_mailbox_delete_requires_mailbox_id() {
-        let client = JmapClient::new("http://localhost:0".to_string(), "fake".to_string());
-        let ctx = Context {
-            jmap: client,
-            account_id: "test".to_string(),
-            recorder: None,
-        };
-
-        let action = ManageMailbox {
-            action: "delete".to_string(),
-            name: String::new(),
-            mailbox_id: String::new(),
-            parent_id: String::new(),
-        };
-        let err = action
-            .run(&ctx)
-            .expect_err("should fail without mailbox_id");
-
+        let err = parse("delete", "", "", "").expect_err("should fail without mailbox_id");
         assert!(matches!(err, Error::InvalidParams(_)));
     }
 
     #[test]
     fn manage_mailbox_rejects_invalid_action() {
-        let client = JmapClient::new("http://localhost:0".to_string(), "fake".to_string());
-        let ctx = Context {
-            jmap: client,
-            account_id: "test".to_string(),
-            recorder: None,
-        };
-
-        let action = ManageMailbox {
-            action: "archive".to_string(),
-            name: String::new(),
-            mailbox_id: String::new(),
-            parent_id: String::new(),
-        };
-        let err = action
-            .run(&ctx)
-            .expect_err("should reject invalid action");
-
+        let err = parse("archive", "", "", "").expect_err("should reject invalid action");
         assert!(matches!(err, Error::InvalidParams(_)));
     }
 
@@ -455,10 +355,8 @@ mod tests {
             recorder: None,
         };
 
-        let action = ManageMailbox {
-            action: "create".to_string(),
+        let action = ManageMailbox::Create {
             name: "Projects".to_string(),
-            mailbox_id: String::new(),
             parent_id: String::new(),
         };
         let result = action.run(&ctx).expect("create should succeed");
@@ -487,11 +385,8 @@ mod tests {
             recorder: None,
         };
 
-        let action = ManageMailbox {
-            action: "delete".to_string(),
-            name: String::new(),
+        let action = ManageMailbox::Delete {
             mailbox_id: "mb-del".to_string(),
-            parent_id: String::new(),
         };
         let result = action.run(&ctx).expect("delete should succeed");
 
@@ -519,11 +414,9 @@ mod tests {
             recorder: None,
         };
 
-        let action = ManageMailbox {
-            action: "rename".to_string(),
-            name: "NewName".to_string(),
+        let action = ManageMailbox::Rename {
             mailbox_id: "mb1".to_string(),
-            parent_id: String::new(),
+            name: "NewName".to_string(),
         };
         let result = action.run(&ctx).expect("rename should succeed");
 
@@ -551,10 +444,8 @@ mod tests {
             recorder: None,
         };
 
-        let action = ManageMailbox {
-            action: "create".to_string(),
+        let action = ManageMailbox::Create {
             name: "Child".to_string(),
-            mailbox_id: String::new(),
             parent_id: "mbox-parent".to_string(),
         };
         let result = action.run(&ctx).expect("create with parent should succeed");
