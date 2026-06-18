@@ -49,22 +49,59 @@ pub fn tools() -> Vec<Tool> {
     ]
 }
 
+/// Lifecycle state of a masked email.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MaskedEmailState {
+    Pending,
+    Enabled,
+    Disabled,
+    Deleted,
+}
+
+impl MaskedEmailState {
+    /// Parse any lifecycle state — used for list filtering.
+    pub fn parse(s: &str) -> Result<Self> {
+        match s {
+            "pending" => Ok(Self::Pending),
+            "enabled" => Ok(Self::Enabled),
+            "disabled" => Ok(Self::Disabled),
+            "deleted" => Ok(Self::Deleted),
+            _ => Err(Error::InvalidParams(
+                "state must be pending, enabled, disabled, or deleted".to_string(),
+            )),
+        }
+    }
+
+    /// Parse a settable state — used for updates. `pending` is auto-assigned by the
+    /// server and cannot be set, so it is rejected here.
+    pub fn parse_settable(s: &str) -> Result<Self> {
+        match s {
+            "" => Err(Error::InvalidParams("state is required".to_string())),
+            "enabled" => Ok(Self::Enabled),
+            "disabled" => Ok(Self::Disabled),
+            "deleted" => Ok(Self::Deleted),
+            _ => Err(Error::InvalidParams(
+                "state must be enabled, disabled, or deleted".to_string(),
+            )),
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Enabled => "enabled",
+            Self::Disabled => "disabled",
+            Self::Deleted => "deleted",
+        }
+    }
+}
+
 pub struct ListMaskedEmails {
-    pub state: String,
+    pub state: Option<MaskedEmailState>,
 }
 
 impl Action for ListMaskedEmails {
     fn run(&self, ctx: &Context) -> Result<serde_json::Value> {
-        // Validate state before making the JMAP call to avoid wasting a round trip.
-        if !self.state.is_empty() {
-            let valid_states = ["pending", "enabled", "disabled", "deleted"];
-            if !valid_states.contains(&self.state.as_str()) {
-                return Err(Error::InvalidParams(
-                    "state must be pending, enabled, disabled, or deleted".to_string(),
-                ));
-            }
-        }
-
         let data = ctx.jmap.call_one(
             CAPABILITY,
             "MaskedEmail/get",
@@ -73,15 +110,15 @@ impl Action for ListMaskedEmails {
 
         let list = data.get("list").cloned().unwrap_or(serde_json::json!([]));
 
-        if self.state.is_empty() {
+        let Some(state) = self.state else {
             return Ok(project_fields_array(&list, LIST_FIELDS));
-        }
+        };
 
         let filtered: Vec<&serde_json::Value> = list
             .as_array()
             .map(|arr| {
                 arr.iter()
-                    .filter(|m| m.get("state").and_then(|s| s.as_str()) == Some(&self.state))
+                    .filter(|m| m.get("state").and_then(|s| s.as_str()) == Some(state.label()))
                     .collect()
             })
             .unwrap_or_default();
@@ -129,7 +166,7 @@ impl Action for CreateMaskedEmail {
 
 pub struct UpdateMaskedEmail {
     pub id: String,
-    pub state: String,
+    pub state: MaskedEmailState,
 }
 
 impl Action for UpdateMaskedEmail {
@@ -138,21 +175,10 @@ impl Action for UpdateMaskedEmail {
             return Err(Error::InvalidParams("id is required".to_string()));
         }
 
-        if self.state.is_empty() {
-            return Err(Error::InvalidParams("state is required".to_string()));
-        }
-
-        let valid_states = ["enabled", "disabled", "deleted"];
-        if !valid_states.contains(&self.state.as_str()) {
-            return Err(Error::InvalidParams(
-                "state must be enabled, disabled, or deleted".to_string(),
-            ));
-        }
-
         let args = serde_json::json!({
             "accountId": ctx.account_id,
             "update": {
-                self.id.clone(): { "state": self.state }
+                self.id.clone(): { "state": self.state.label() }
             }
         });
 
@@ -209,7 +235,7 @@ mod tests {
             recorder: None,
         };
 
-        let result = ListMaskedEmails { state: String::new() }
+        let result = ListMaskedEmails { state: None }
             .run(&ctx)
             .expect("run");
         let arr = result.as_array().expect("array");
@@ -275,7 +301,7 @@ mod tests {
             recorder: None,
         };
 
-        let result = ListMaskedEmails { state: "enabled".to_string() }
+        let result = ListMaskedEmails { state: Some(MaskedEmailState::Enabled) }
             .run(&ctx)
             .expect("run");
         let arr = result.as_array().expect("array");
@@ -286,16 +312,7 @@ mod tests {
 
     #[test]
     fn list_masked_emails_rejects_invalid_state() {
-        let client = JmapClient::new("http://localhost:0".to_string(), "fake".to_string());
-        let ctx = Context {
-            jmap: client,
-            account_id: "test".to_string(),
-            recorder: None,
-        };
-
-        let err = ListMaskedEmails { state: "bogus".to_string() }
-            .run(&ctx)
-            .expect_err("should reject invalid state");
+        let err = MaskedEmailState::parse("bogus").expect_err("should reject invalid state");
         assert!(matches!(err, Error::InvalidParams(_)));
     }
 
@@ -391,7 +408,7 @@ mod tests {
 
         let err = UpdateMaskedEmail {
             id: String::new(),
-            state: "enabled".to_string(),
+            state: MaskedEmailState::Enabled,
         }
         .run(&ctx)
         .expect_err("should require id");
@@ -400,38 +417,17 @@ mod tests {
 
     #[test]
     fn update_masked_email_requires_state() {
-        let client = JmapClient::new("http://localhost:0".to_string(), "fake".to_string());
-        let ctx = Context {
-            jmap: client,
-            account_id: "test".to_string(),
-            recorder: None,
-        };
-
-        let err = UpdateMaskedEmail {
-            id: "me1".to_string(),
-            state: String::new(),
-        }
-        .run(&ctx)
-        .expect_err("should require state");
+        let err = MaskedEmailState::parse_settable("").expect_err("should require state");
         assert!(matches!(err, Error::InvalidParams(_)));
     }
 
     #[test]
     fn update_masked_email_rejects_invalid_state() {
-        let client = JmapClient::new("http://localhost:0".to_string(), "fake".to_string());
-        let ctx = Context {
-            jmap: client,
-            account_id: "test".to_string(),
-            recorder: None,
-        };
-
-        let err = UpdateMaskedEmail {
-            id: "me1".to_string(),
-            state: "bogus".to_string(),
-        }
-        .run(&ctx)
-        .expect_err("should reject invalid state");
+        let err =
+            MaskedEmailState::parse_settable("bogus").expect_err("should reject invalid state");
         assert!(matches!(err, Error::InvalidParams(_)));
+        // `pending` is a real lifecycle state but cannot be set by the client.
+        assert!(MaskedEmailState::parse_settable("pending").is_err());
     }
 
     #[test]
@@ -458,7 +454,7 @@ mod tests {
 
         let result = UpdateMaskedEmail {
             id: "me1".to_string(),
-            state: "disabled".to_string(),
+            state: MaskedEmailState::Disabled,
         }
         .run(&ctx)
         .expect("run");
@@ -482,10 +478,8 @@ mod tests {
             recorder: None,
         };
 
-        let result = ListMaskedEmails {
-            state: String::new(),
-        }
-        .run(&ctx)
+        let result = ListMaskedEmails { state: None }
+            .run(&ctx)
         .expect("empty list should succeed");
         let arr = result.as_array().expect("should be array");
         assert!(arr.is_empty(), "should return empty array");

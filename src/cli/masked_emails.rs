@@ -1,6 +1,8 @@
 use clap::Subcommand;
 
-use crate::actions::masked_email::{CreateMaskedEmail, ListMaskedEmails, UpdateMaskedEmail};
+use crate::actions::masked_email::{
+    CreateMaskedEmail, ListMaskedEmails, MaskedEmailState, UpdateMaskedEmail,
+};
 use crate::actions::{Action, Context};
 use crate::cli::io::{Io, OutputMode};
 use crate::error::Result;
@@ -43,10 +45,9 @@ pub enum MaskedEmailCommand {
 pub fn run(cmd: MaskedEmailCommand, ctx: &Context, io: &Io) -> Result<()> {
     match cmd {
         MaskedEmailCommand::List { state } => {
+            let state = state.map(|s| MaskedEmailState::parse(&s)).transpose()?;
             let spinner = io.progress("Fetching masked emails…");
-            let action = ListMaskedEmails {
-                state: state.unwrap_or_default(),
-            };
+            let action = ListMaskedEmails { state };
             let result = action.run(ctx);
             Io::finish_progress(spinner);
             let value = result?;
@@ -130,10 +131,11 @@ pub fn run(cmd: MaskedEmailCommand, ctx: &Context, io: &Io) -> Result<()> {
             }
         }
         MaskedEmailCommand::Update { id, state } => {
+            let parsed_state = MaskedEmailState::parse_settable(&state)?;
             let spinner = io.progress("Updating masked email…");
             let action = UpdateMaskedEmail {
                 id,
-                state: state.clone(),
+                state: parsed_state,
             };
             let result = action.run(ctx);
             Io::finish_progress(spinner);
