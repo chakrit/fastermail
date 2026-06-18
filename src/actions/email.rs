@@ -1,4 +1,6 @@
-use crate::actions::{Action, Context};
+use crate::actions::{
+    check_set_errors, find_mailbox_id_by_name, find_mailbox_id_by_role, Action, Context,
+};
 use crate::error::{Error, Result};
 use crate::jmap::types::back_reference;
 use crate::mcp::types::Tool;
@@ -7,74 +9,41 @@ use crate::mcp::types::Tool;
 /// Transforms `textBody` and `htmlBody` from arrays of part-references into actual content strings,
 /// adds a `date` field from `receivedAt`, and removes the raw `bodyValues` key.
 fn extract_body_content(email: &mut serde_json::Value) {
-    if let Some(obj) = email.as_object_mut() {
-        // Add `date` field from `receivedAt`
-        if let Some(received) = obj.get("receivedAt").cloned() {
-            obj.insert("date".to_string(), received);
-        }
+    let Some(obj) = email.as_object_mut() else {
+        return;
+    };
 
-        let body_values = obj.get("bodyValues").cloned();
-
-        // Extract textBody content
-        if let Some(text_body) = obj.get("textBody").cloned() {
-            if let Some(parts) = text_body.as_array() {
-                if let Some(first) = parts.first() {
-                    if let Some(part_id) = first.get("partId").and_then(|p| p.as_str()) {
-                        if let Some(ref bv) = body_values {
-                            if let Some(content) = bv.get(part_id).and_then(|v| v.get("value")) {
-                                obj.insert("textBody".to_string(), content.clone());
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Extract htmlBody content
-        if let Some(html_body) = obj.get("htmlBody").cloned() {
-            if let Some(parts) = html_body.as_array() {
-                if let Some(first) = parts.first() {
-                    if let Some(part_id) = first.get("partId").and_then(|p| p.as_str()) {
-                        if let Some(ref bv) = body_values {
-                            if let Some(content) = bv.get(part_id).and_then(|v| v.get("value")) {
-                                obj.insert("htmlBody".to_string(), content.clone());
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Remove raw bodyValues - consumers don't need it
-        obj.remove("bodyValues");
+    if let Some(received) = obj.get("receivedAt").cloned() {
+        obj.insert("date".to_string(), received);
     }
+
+    let body_values = obj.get("bodyValues").cloned();
+    for key in ["textBody", "htmlBody"] {
+        if let Some(content) = resolve_body_part(obj.get(key), body_values.as_ref()) {
+            obj.insert(key.to_string(), content);
+        }
+    }
+
+    // Raw bodyValues is an implementation detail consumers don't need.
+    obj.remove("bodyValues");
 }
 
-/// Check an Email/set (or similar /set) response for partial failure errors.
-/// JMAP /set responses include `notCreated`, `notUpdated`, or `notDestroyed`
-/// when some objects in the batch fail. This helper surfaces the first error.
-fn check_set_errors(data: &serde_json::Value, method: &str) -> Result<()> {
-    for key in &["notCreated", "notUpdated", "notDestroyed"] {
-        if let Some(obj) = data.get(key).and_then(|v| v.as_object()) {
-            if obj.is_empty() {
-                continue;
-            }
+/// Resolve a `textBody`/`htmlBody` part-reference array to its actual content string
+/// by looking up the first part's `partId` in the `bodyValues` map.
+fn resolve_body_part(
+    body: Option<&serde_json::Value>,
+    body_values: Option<&serde_json::Value>,
+) -> Option<serde_json::Value> {
+    let part_id = body?
+        .as_array()
+        .and_then(|parts| parts.first())
+        .and_then(|first| first.get("partId"))
+        .and_then(|p| p.as_str())?;
 
-            let desc = obj
-                .values()
-                .next()
-                .and_then(|v| v.get("description"))
-                .and_then(|d| d.as_str())
-                .unwrap_or(key);
-
-            return Err(Error::Jmap {
-                method: method.to_string(),
-                message: desc.to_string(),
-            });
-        }
-    }
-
-    Ok(())
+    body_values?
+        .get(part_id)
+        .and_then(|v| v.get("value"))
+        .cloned()
 }
 
 pub fn tools() -> Vec<Tool> {
@@ -260,22 +229,12 @@ impl GetEmails {
             serde_json::json!({ "accountId": ctx.account_id }),
         )?;
 
-        let target = self.mailbox_name.to_lowercase();
-        let list = data.get("list").and_then(|l| l.as_array());
-
-        list.and_then(|mailboxes| {
-            mailboxes.iter().find_map(|m| {
-                let name = m.get("name").and_then(|n| n.as_str()).unwrap_or("");
-                if name.to_lowercase() == target {
-                    m.get("id").and_then(|id| id.as_str()).map(String::from)
-                } else {
-                    None
-                }
+        data.get("list")
+            .and_then(|l| l.as_array())
+            .and_then(|mailboxes| find_mailbox_id_by_name(mailboxes, &self.mailbox_name))
+            .ok_or_else(|| {
+                Error::InvalidParams(format!("mailbox not found: {}", self.mailbox_name))
             })
-        })
-        .ok_or_else(|| {
-            Error::InvalidParams(format!("mailbox not found: {}", self.mailbox_name))
-        })
     }
 }
 
@@ -581,22 +540,7 @@ impl Action for SendEmail {
             .iter()
             .find(|(m, _, _)| m == "EmailSubmission/set")
         {
-            if let Some(not_created) = sub_data.get("notCreated") {
-                if let Some(obj) = not_created.as_object() {
-                    if !obj.is_empty() {
-                        let desc = obj
-                            .values()
-                            .next()
-                            .and_then(|v| v.get("description"))
-                            .and_then(|d| d.as_str())
-                            .unwrap_or("submission rejected");
-                        return Err(Error::Jmap {
-                            method: "EmailSubmission/set".to_string(),
-                            message: desc.to_string(),
-                        });
-                    }
-                }
-            }
+            check_set_errors(sub_data, "EmailSubmission/set")?;
         }
 
         let email_id = resp
@@ -749,58 +693,56 @@ impl Action for DeleteEmail {
                 .unwrap_or(0);
 
             return Ok(serde_json::json!({ "deleted": deleted }));
-        } else {
-            let trash_data = ctx.jmap.call_one(
-                "urn:ietf:params:jmap:mail",
-                "Mailbox/get",
-                serde_json::json!({ "accountId": ctx.account_id }),
-            )?;
-
-            let trash_id = trash_data
-                .get("list")
-                .and_then(|l| l.as_array())
-                .and_then(|arr| {
-                    arr.iter().find_map(|m| {
-                        if m.get("role").and_then(|r| r.as_str()) == Some("trash") {
-                            m.get("id").and_then(|id| id.as_str()).map(String::from)
-                        } else {
-                            None
-                        }
-                    })
-                })
-                .ok_or_else(|| Error::Jmap {
-                    method: "Mailbox/get".to_string(),
-                    message: "trash mailbox not found".to_string(),
-                })?;
-
-            let mut update = serde_json::Map::new();
-            for id in &self.email_ids {
-                update.insert(
-                    id.clone(),
-                    serde_json::json!({
-                        "mailboxIds": { trash_id.clone(): true }
-                    }),
-                );
-            }
-
-            let args = serde_json::json!({
-                "accountId": ctx.account_id,
-                "update": update
-            });
-
-            let data = ctx.jmap
-                .call_one("urn:ietf:params:jmap:mail", "Email/set", args)?;
-
-            check_set_errors(&data, "Email/set")?;
-
-            let deleted = data
-                .get("updated")
-                .and_then(|u| u.as_object())
-                .map(|m| m.len())
-                .unwrap_or(0);
-
-            Ok(serde_json::json!({ "deleted": deleted }))
         }
+
+        let trash_id = self.resolve_trash_id(ctx)?;
+
+        let mut update = serde_json::Map::new();
+        for id in &self.email_ids {
+            update.insert(
+                id.clone(),
+                serde_json::json!({
+                    "mailboxIds": { trash_id.clone(): true }
+                }),
+            );
+        }
+
+        let args = serde_json::json!({
+            "accountId": ctx.account_id,
+            "update": update
+        });
+
+        let data = ctx.jmap
+            .call_one("urn:ietf:params:jmap:mail", "Email/set", args)?;
+
+        check_set_errors(&data, "Email/set")?;
+
+        let deleted = data
+            .get("updated")
+            .and_then(|u| u.as_object())
+            .map(|m| m.len())
+            .unwrap_or(0);
+
+        Ok(serde_json::json!({ "deleted": deleted }))
+    }
+}
+
+impl DeleteEmail {
+    fn resolve_trash_id(&self, ctx: &Context) -> Result<String> {
+        let trash_data = ctx.jmap.call_one(
+            "urn:ietf:params:jmap:mail",
+            "Mailbox/get",
+            serde_json::json!({ "accountId": ctx.account_id }),
+        )?;
+
+        trash_data
+            .get("list")
+            .and_then(|l| l.as_array())
+            .and_then(|arr| find_mailbox_id_by_role(arr, "trash"))
+            .ok_or_else(|| Error::Jmap {
+                method: "Mailbox/get".to_string(),
+                message: "trash mailbox not found".to_string(),
+            })
     }
 }
 

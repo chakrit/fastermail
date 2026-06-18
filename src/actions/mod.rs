@@ -5,7 +5,7 @@ pub mod mailbox;
 pub mod masked_email;
 pub mod vacation;
 
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::jmap::client::JmapClient;
 use crate::mcp::types::Tool;
 use crate::recorder::Recorder;
@@ -45,6 +45,56 @@ pub fn project_fields_array(arr: &serde_json::Value, fields: &[&str]) -> serde_j
         }
         None => arr.clone(),
     }
+}
+
+/// Check a JMAP `/set` response for partial failure errors.
+///
+/// `/set` responses include `notCreated`, `notUpdated`, or `notDestroyed` when some
+/// objects in the batch fail. This surfaces the first such error.
+pub fn check_set_errors(data: &serde_json::Value, method: &str) -> Result<()> {
+    for key in &["notCreated", "notUpdated", "notDestroyed"] {
+        let Some(obj) = data.get(key).and_then(|v| v.as_object()) else {
+            continue;
+        };
+        if obj.is_empty() {
+            continue;
+        }
+
+        let desc = obj
+            .values()
+            .next()
+            .and_then(|v| v.get("description"))
+            .and_then(|d| d.as_str())
+            .unwrap_or(key);
+
+        return Err(Error::Jmap {
+            method: method.to_string(),
+            message: desc.to_string(),
+        });
+    }
+
+    Ok(())
+}
+
+/// Find a mailbox id in a JMAP `Mailbox/get` list by its `role` field.
+pub fn find_mailbox_id_by_role(mailboxes: &[serde_json::Value], role: &str) -> Option<String> {
+    mailboxes
+        .iter()
+        .filter(|m| m.get("role").and_then(|r| r.as_str()) == Some(role))
+        .find_map(|m| m.get("id").and_then(|id| id.as_str()).map(String::from))
+}
+
+/// Find a mailbox id in a JMAP `Mailbox/get` list by exact, case-insensitive name.
+pub fn find_mailbox_id_by_name(mailboxes: &[serde_json::Value], name: &str) -> Option<String> {
+    let target = name.to_lowercase();
+    mailboxes
+        .iter()
+        .filter(|m| {
+            m.get("name")
+                .and_then(|n| n.as_str())
+                .is_some_and(|n| n.to_lowercase() == target)
+        })
+        .find_map(|m| m.get("id").and_then(|id| id.as_str()).map(String::from))
 }
 
 /// Return the list of all registered tool definitions.

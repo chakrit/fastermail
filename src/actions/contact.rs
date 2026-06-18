@@ -1,4 +1,4 @@
-use crate::actions::{Action, Context};
+use crate::actions::{check_set_errors, project_fields_array, Action, Context};
 use crate::error::{Error, Result};
 use crate::jmap::types::back_reference;
 use crate::mcp::types::Tool;
@@ -338,31 +338,6 @@ fn build_phone_map(phones: &[serde_json::Value]) -> serde_json::Value {
     serde_json::Value::Object(map)
 }
 
-/// Check a /set response for partial failure errors.
-fn check_set_errors(data: &serde_json::Value, method: &str) -> Result<()> {
-    for key in &["notCreated", "notUpdated", "notDestroyed"] {
-        if let Some(obj) = data.get(key).and_then(|v| v.as_object()) {
-            if obj.is_empty() {
-                continue;
-            }
-
-            let desc = obj
-                .values()
-                .next()
-                .and_then(|v| v.get("description"))
-                .and_then(|d| d.as_str())
-                .unwrap_or(key);
-
-            return Err(Error::Jmap {
-                method: method.to_string(),
-                message: desc.to_string(),
-            });
-        }
-    }
-
-    Ok(())
-}
-
 // -- Actions --
 
 pub struct ListAddressBooks;
@@ -376,7 +351,7 @@ impl Action for ListAddressBooks {
         )?;
 
         let list = data.get("list").cloned().unwrap_or(serde_json::json!([]));
-        Ok(crate::actions::project_fields_array(&list, AB_LIST_FIELDS))
+        Ok(project_fields_array(&list, AB_LIST_FIELDS))
     }
 }
 
