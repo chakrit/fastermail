@@ -1,5 +1,5 @@
 use httpmock::prelude::*;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 pub const TEST_ACCOUNT_ID: &str = "u1234567";
 
@@ -33,9 +33,7 @@ impl MockJmap {
     pub fn handle_method(&self, method_name: &str, response_body: Value) {
         let method = method_name.to_string();
         self.server.mock(|when, then| {
-            when.method(POST)
-                .path("/jmap/api/")
-                .body_includes(&method);
+            when.method(POST).path("/jmap/api/").body_includes(&method);
             then.status(200)
                 .header("content-type", "application/json")
                 .json_body(response_body);

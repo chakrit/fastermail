@@ -1,6 +1,8 @@
-use crate::actions::{self, contact, email, identity, mailbox, masked_email, vacation, Action, Context};
-use crate::json;
+use crate::actions::{
+    self, Action, Context, contact, email, identity, mailbox, masked_email, vacation,
+};
 use crate::error::Error;
+use crate::json;
 use crate::mcp::types::{
     InitializeParams, InitializeResult, ServerCapabilities, ServerInfo, ToolCallParams,
     ToolCallResult, ToolsCapability, ToolsListResult,
@@ -46,10 +48,8 @@ pub fn handle_tools_call(params: serde_json::Value, ctx: &Context) -> serde_json
     };
 
     if call.name.is_empty() {
-        return serde_json::to_value(ToolCallResult::error(
-            "tool name is required".to_string(),
-        ))
-        .unwrap_or_default();
+        return serde_json::to_value(ToolCallResult::error("tool name is required".to_string()))
+            .unwrap_or_default();
     }
 
     let args = &call.arguments;
@@ -296,9 +296,7 @@ fn str_param(args: &serde_json::Value, key: &str) -> String {
 }
 
 fn u32_param(args: &serde_json::Value, key: &str) -> u32 {
-    args.get(key)
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0) as u32
+    args.get(key).and_then(|v| v.as_u64()).unwrap_or(0) as u32
 }
 
 fn bool_param(args: &serde_json::Value, key: &str) -> bool {
@@ -345,7 +343,9 @@ mod tests {
     #[test]
     fn tools_list_returns_all_tools() {
         let result = handle_tools_list();
-        let tools = result["tools"].as_array().expect("tools should be an array");
+        let tools = result["tools"]
+            .as_array()
+            .expect("tools should be an array");
 
         let tool_names: Vec<&str> = tools
             .iter()
@@ -416,11 +416,7 @@ mod tests {
 
     #[test]
     fn dispatch_unknown_tool_returns_error() {
-        let err = dispatch_tool(
-            "nonexistent_tool",
-            &serde_json::json!({}),
-            &test_ctx(),
-        );
+        let err = dispatch_tool("nonexistent_tool", &serde_json::json!({}), &test_ctx());
 
         assert!(err.is_err());
         let msg = err.expect_err("should be error").to_string();
@@ -444,16 +440,15 @@ mod tests {
 
         assert!(err.is_err());
         let msg = err.expect_err("should be error").to_string();
-        assert!(msg.contains("invalid flag"), "error should mention invalid flag: {msg}");
+        assert!(
+            msg.contains("invalid flag"),
+            "error should mention invalid flag: {msg}"
+        );
     }
 
     #[test]
     fn dispatch_search_emails_requires_filter() {
-        let err = dispatch_tool(
-            "search_emails",
-            &serde_json::json!({}),
-            &test_ctx(),
-        );
+        let err = dispatch_tool("search_emails", &serde_json::json!({}), &test_ctx());
 
         assert!(err.is_err());
         let msg = err.expect_err("should be error").to_string();
@@ -465,11 +460,7 @@ mod tests {
 
     #[test]
     fn dispatch_get_email_body_requires_email_id() {
-        let err = dispatch_tool(
-            "get_email_body",
-            &serde_json::json!({}),
-            &test_ctx(),
-        );
+        let err = dispatch_tool("get_email_body", &serde_json::json!({}), &test_ctx());
 
         assert!(err.is_err());
         let msg = err.expect_err("should be error").to_string();
@@ -508,11 +499,7 @@ mod tests {
 
     #[test]
     fn dispatch_search_contacts_requires_query() {
-        let err = dispatch_tool(
-            "search_contacts",
-            &serde_json::json!({}),
-            &test_ctx(),
-        );
+        let err = dispatch_tool("search_contacts", &serde_json::json!({}), &test_ctx());
 
         assert!(err.is_err());
         let msg = err.expect_err("should be error").to_string();
@@ -524,11 +511,7 @@ mod tests {
 
     #[test]
     fn dispatch_create_contact_requires_name() {
-        let err = dispatch_tool(
-            "create_contact",
-            &serde_json::json!({}),
-            &test_ctx(),
-        );
+        let err = dispatch_tool("create_contact", &serde_json::json!({}), &test_ctx());
 
         assert!(err.is_err());
         let msg = err.expect_err("should be error").to_string();
@@ -540,11 +523,7 @@ mod tests {
 
     #[test]
     fn dispatch_delete_contact_requires_contact_id() {
-        let err = dispatch_tool(
-            "delete_contact",
-            &serde_json::json!({}),
-            &test_ctx(),
-        );
+        let err = dispatch_tool("delete_contact", &serde_json::json!({}), &test_ctx());
 
         assert!(err.is_err());
         let msg = err.expect_err("should be error").to_string();

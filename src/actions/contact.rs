@@ -2,10 +2,10 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::actions::{check_set_errors, project_fields_array, Action, Context};
-use crate::json;
+use crate::actions::{Action, Context, check_set_errors, project_fields_array};
 use crate::error::{Error, Result};
 use crate::jmap::types::back_reference;
+use crate::json;
 use crate::mcp::types::Tool;
 
 const CAPABILITY: &str = "urn:ietf:params:jmap:contacts";
@@ -450,7 +450,10 @@ fn query_and_flatten(
     filter: serde_json::Value,
     limit: u32,
 ) -> Result<serde_json::Value> {
-    let using = vec!["urn:ietf:params:jmap:core".to_string(), CAPABILITY.to_string()];
+    let using = vec![
+        "urn:ietf:params:jmap:core".to_string(),
+        CAPABILITY.to_string(),
+    ];
 
     let query_args = serde_json::json!({
         "accountId": ctx.account_id,
@@ -465,8 +468,16 @@ fn query_and_flatten(
     });
 
     let method_calls = vec![
-        ("ContactCard/query".to_string(), query_args, "call-0".to_string()),
-        ("ContactCard/get".to_string(), get_args, "call-1".to_string()),
+        (
+            "ContactCard/query".to_string(),
+            query_args,
+            "call-0".to_string(),
+        ),
+        (
+            "ContactCard/get".to_string(),
+            get_args,
+            "call-1".to_string(),
+        ),
     ];
 
     let resp = ctx.jmap.call(using, method_calls)?;
@@ -776,7 +787,10 @@ mod tests {
 
         let e1 = &obj["e1"];
         assert_eq!(e1["address"], "c@d.com");
-        assert!(e1.get("contexts").is_none(), "other type should omit contexts");
+        assert!(
+            e1.get("contexts").is_none(),
+            "other type should omit contexts"
+        );
     }
 
     #[test]

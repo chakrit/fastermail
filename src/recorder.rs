@@ -20,7 +20,11 @@ impl Recorder {
 
         let dir = PathBuf::from(dir);
         if let Err(e) = fs::create_dir_all(&dir) {
-            log_warn!("recorder", "failed to create directory {}: {e}", dir.display());
+            log_warn!(
+                "recorder",
+                "failed to create directory {}: {e}",
+                dir.display()
+            );
             return None;
         }
 

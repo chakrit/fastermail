@@ -124,9 +124,7 @@ impl Cli {
                 cmd.print_help().map_err(crate::error::Error::Io)?;
                 Ok(())
             }
-            Some(Command::Mcp) => {
-                crate::run_mcp_server()
-            }
+            Some(Command::Mcp) => crate::run_mcp_server(),
             Some(Command::Config) => {
                 let io = Io::new(OutputMode::detect(self.json, self.raw));
                 Self::print_config(&io)
@@ -168,10 +166,7 @@ impl Cli {
                 ctx,
                 io,
             ),
-            Command::Mv {
-                email_ids,
-                mailbox,
-            } => emails::run(
+            Command::Mv { email_ids, mailbox } => emails::run(
                 emails::EmailCommand::Move {
                     email_ids,
                     to: mailbox,
@@ -179,11 +174,9 @@ impl Cli {
                 ctx,
                 io,
             ),
-            Command::Read { email_id, format } => emails::run(
-                emails::EmailCommand::Get { email_id, format },
-                ctx,
-                io,
-            ),
+            Command::Read { email_id, format } => {
+                emails::run(emails::EmailCommand::Get { email_id, format }, ctx, io)
+            }
         }
     }
 
@@ -270,16 +263,16 @@ impl Cli {
             }
         }
 
-        io.hint("Create a FastMail API token at: https://app.fastmail.com/settings/security/tokens");
+        io.hint(
+            "Create a FastMail API token at: https://app.fastmail.com/settings/security/tokens",
+        );
         io.hint("Required scope: JMAP access");
         io.separator();
 
         let token = inquire::Text::new("API Token:")
             .with_help_message("Paste your FastMail API token (starts with fmu1-)")
             .prompt()
-            .map_err(|e| {
-                crate::error::Error::InvalidParams(format!("prompt cancelled: {e}"))
-            })?;
+            .map_err(|e| crate::error::Error::InvalidParams(format!("prompt cancelled: {e}")))?;
 
         let token = token.trim().to_string();
         if token.is_empty() {
@@ -289,7 +282,10 @@ impl Cli {
         }
 
         let written_path = config::write_config(&token)?;
-        io.done(&format!("Saved to {} (permissions: 0600)", written_path.display()));
+        io.done(&format!(
+            "Saved to {} (permissions: 0600)",
+            written_path.display()
+        ));
 
         // Verify connection
         io.separator();

@@ -1,5 +1,5 @@
-use clap::Subcommand;
 use crate::json;
+use clap::Subcommand;
 
 use crate::actions::identity::ListIdentities;
 use crate::actions::{Action, Context};
@@ -42,10 +42,7 @@ pub fn run(cmd: IdentityCommand, ctx: &Context, io: &Io) -> Result<()> {
             io.done(&format!("{} identity(ies)", identities.len()));
             io.separator();
 
-            io.data(&format!(
-                "{:<40} {:<24} {}",
-                "ID", "NAME", "EMAIL"
-            ));
+            io.data(&format!("{:<40} {:<24} {}", "ID", "NAME", "EMAIL"));
             io.data(&"─".repeat(80));
 
             for ident in identities {

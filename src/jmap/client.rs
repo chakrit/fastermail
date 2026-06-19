@@ -61,7 +61,11 @@ impl JmapClient {
 
         let jmap_resp: JmapResponse = resp.body_mut().read_json()?;
 
-        log_trace!("jmap", "response: {} method(s)", jmap_resp.method_responses.len());
+        log_trace!(
+            "jmap",
+            "response: {} method(s)",
+            jmap_resp.method_responses.len()
+        );
 
         Ok(jmap_resp)
     }
@@ -81,14 +85,14 @@ impl JmapClient {
 
         let resp = self.call(using, method_calls)?;
 
-        let (resp_method, resp_data, _) = resp
-            .method_responses
-            .into_iter()
-            .next()
-            .ok_or_else(|| Error::Jmap {
-                method: method.to_string(),
-                message: "empty response".to_string(),
-            })?;
+        let (resp_method, resp_data, _) =
+            resp.method_responses
+                .into_iter()
+                .next()
+                .ok_or_else(|| Error::Jmap {
+                    method: method.to_string(),
+                    message: "empty response".to_string(),
+                })?;
 
         if resp_method == "error" {
             let err_msg = resp_data
@@ -147,11 +151,9 @@ mod tests {
             then.status(401);
         });
 
-        let err = JmapClient::connect_to(
-            &format!("{}/jmap/session", server.base_url()),
-            "bad-token",
-        )
-        .expect_err("401 should produce an error");
+        let err =
+            JmapClient::connect_to(&format!("{}/jmap/session", server.base_url()), "bad-token")
+                .expect_err("401 should produce an error");
 
         let msg = format!("{err:?}");
         assert!(
@@ -163,25 +165,32 @@ mod tests {
     #[test]
     fn call_one_returns_response_data() {
         let mock = MockJmap::start();
-        mock.handle_method("Mailbox/get", json!({
-            "methodResponses": [
-                ["Mailbox/get", {
-                    "accountId": TEST_ACCOUNT_ID,
-                    "list": [
-                        { "id": "mbox-1", "name": "Inbox", "role": "inbox" }
-                    ]
-                }, "call-0"]
-            ]
-        }));
+        mock.handle_method(
+            "Mailbox/get",
+            json!({
+                "methodResponses": [
+                    ["Mailbox/get", {
+                        "accountId": TEST_ACCOUNT_ID,
+                        "list": [
+                            { "id": "mbox-1", "name": "Inbox", "role": "inbox" }
+                        ]
+                    }, "call-0"]
+                ]
+            }),
+        );
 
         let (client, _) = JmapClient::connect_to(&mock.session_url(), "fake-token")
             .expect("session should succeed");
 
         let result = client
-            .call_one("urn:ietf:params:jmap:mail", "Mailbox/get", json!({
-                "accountId": TEST_ACCOUNT_ID,
-                "ids": null
-            }))
+            .call_one(
+                "urn:ietf:params:jmap:mail",
+                "Mailbox/get",
+                json!({
+                    "accountId": TEST_ACCOUNT_ID,
+                    "ids": null
+                }),
+            )
             .expect("call_one should succeed");
 
         let list = result["list"].as_array().expect("should have list");
@@ -192,20 +201,27 @@ mod tests {
     #[test]
     fn call_one_maps_jmap_error_response() {
         let mock = MockJmap::start();
-        mock.handle_method("Email/get", json!({
-            "methodResponses": [
-                ["error", { "type": "notFound" }, "call-0"]
-            ]
-        }));
+        mock.handle_method(
+            "Email/get",
+            json!({
+                "methodResponses": [
+                    ["error", { "type": "notFound" }, "call-0"]
+                ]
+            }),
+        );
 
         let (client, _) = JmapClient::connect_to(&mock.session_url(), "fake-token")
             .expect("session should succeed");
 
         let err = client
-            .call_one("urn:ietf:params:jmap:mail", "Email/get", json!({
-                "accountId": TEST_ACCOUNT_ID,
-                "ids": ["nonexistent"]
-            }))
+            .call_one(
+                "urn:ietf:params:jmap:mail",
+                "Email/get",
+                json!({
+                    "accountId": TEST_ACCOUNT_ID,
+                    "ids": ["nonexistent"]
+                }),
+            )
             .expect_err("JMAP error response should produce an error");
 
         let msg = format!("{err}");

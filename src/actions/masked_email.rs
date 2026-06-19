@@ -1,9 +1,16 @@
-use crate::actions::{project_fields, project_fields_array, Action, Context};
-use crate::json;
+use crate::actions::{Action, Context, project_fields, project_fields_array};
 use crate::error::{Error, Result};
+use crate::json;
 use crate::mcp::types::Tool;
 
-const LIST_FIELDS: &[&str] = &["id", "email", "forDomain", "description", "state", "createdAt"];
+const LIST_FIELDS: &[&str] = &[
+    "id",
+    "email",
+    "forDomain",
+    "description",
+    "state",
+    "createdAt",
+];
 const CREATE_FIELDS: &[&str] = &["id", "email"];
 
 const CAPABILITY: &str = "https://www.fastmail.com/dev/maskedemail";
@@ -124,7 +131,10 @@ impl Action for ListMaskedEmails {
             })
             .unwrap_or_default();
 
-        Ok(project_fields_array(&serde_json::json!(filtered), LIST_FIELDS))
+        Ok(project_fields_array(
+            &serde_json::json!(filtered),
+            LIST_FIELDS,
+        ))
     }
 }
 
@@ -236,9 +246,7 @@ mod tests {
             recorder: None,
         };
 
-        let result = ListMaskedEmails { state: None }
-            .run(&ctx)
-            .expect("run");
+        let result = ListMaskedEmails { state: None }.run(&ctx).expect("run");
         let arr = result.as_array().expect("array");
         assert_eq!(arr.len(), 2);
 
@@ -302,9 +310,11 @@ mod tests {
             recorder: None,
         };
 
-        let result = ListMaskedEmails { state: Some(MaskedEmailState::Enabled) }
-            .run(&ctx)
-            .expect("run");
+        let result = ListMaskedEmails {
+            state: Some(MaskedEmailState::Enabled),
+        }
+        .run(&ctx)
+        .expect("run");
         let arr = result.as_array().expect("array");
         assert_eq!(arr.len(), 1);
         assert_eq!(arr[0]["id"], "me1");
@@ -481,7 +491,7 @@ mod tests {
 
         let result = ListMaskedEmails { state: None }
             .run(&ctx)
-        .expect("empty list should succeed");
+            .expect("empty list should succeed");
         let arr = result.as_array().expect("should be array");
         assert!(arr.is_empty(), "should return empty array");
     }

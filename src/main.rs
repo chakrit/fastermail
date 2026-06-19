@@ -63,7 +63,12 @@ fn connect() -> error::Result<Context> {
             message: "no primary account found in JMAP session".to_string(),
         })?;
 
-    log_info!("main", "connected as {} (account: {})", session.username, account_id);
+    log_info!(
+        "main",
+        "connected as {} (account: {})",
+        session.username,
+        account_id
+    );
 
     let recorder = recorder::Recorder::from_env();
 

@@ -1,5 +1,5 @@
-use clap::Subcommand;
 use crate::json;
+use clap::Subcommand;
 
 use crate::actions::contact::{
     ContactEmail, ContactPatch, ContactPhone, CreateContact, DeleteContact, GetContacts,
@@ -307,10 +307,7 @@ fn format_contact_list(io: &Io, value: &serde_json::Value) {
 
     for contact in contacts {
         let id = json::str_at(contact, "/id").unwrap_or("?");
-        let name = contact
-            .get("name")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let name = contact.get("name").and_then(|v| v.as_str()).unwrap_or("");
         let email = contact
             .get("emails")
             .and_then(|v| v.as_array())

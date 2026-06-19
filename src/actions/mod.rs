@@ -6,8 +6,8 @@ pub mod masked_email;
 pub mod vacation;
 
 use crate::error::{Error, Result};
-use crate::json;
 use crate::jmap::client::JmapClient;
+use crate::json;
 use crate::mcp::types::Tool;
 use crate::recorder::Recorder;
 
@@ -40,8 +40,10 @@ pub fn project_fields(obj: &serde_json::Value, fields: &[&str]) -> serde_json::V
 pub fn project_fields_array(arr: &serde_json::Value, fields: &[&str]) -> serde_json::Value {
     match arr.as_array() {
         Some(items) => {
-            let projected: Vec<serde_json::Value> =
-                items.iter().map(|item| project_fields(item, fields)).collect();
+            let projected: Vec<serde_json::Value> = items
+                .iter()
+                .map(|item| project_fields(item, fields))
+                .collect();
             serde_json::json!(projected)
         }
         None => arr.clone(),

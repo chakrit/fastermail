@@ -168,14 +168,12 @@ key = "value"
             .expect("write file");
 
         // Set world-readable
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o644))
-            .expect("set permissions");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).expect("set permissions");
         let result = check_permissions(&path);
         assert!(result.is_err());
 
         // Set correct permissions
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o600))
-            .expect("set permissions");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).expect("set permissions");
         let result = check_permissions(&path);
         assert!(result.is_ok());
 

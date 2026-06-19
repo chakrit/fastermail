@@ -1,10 +1,17 @@
-use crate::actions::{project_fields_array, Action, Context};
-use crate::json;
+use crate::actions::{Action, Context, project_fields_array};
 use crate::error::{Error, Result};
+use crate::json;
 use crate::mcp::types::Tool;
 
 const CAPABILITY: &str = "urn:ietf:params:jmap:mail";
-const LIST_FIELDS: &[&str] = &["id", "name", "role", "totalEmails", "unreadEmails", "parentId"];
+const LIST_FIELDS: &[&str] = &[
+    "id",
+    "name",
+    "role",
+    "totalEmails",
+    "unreadEmails",
+    "parentId",
+];
 
 pub fn tools() -> Vec<Tool> {
     vec![
@@ -62,11 +69,7 @@ impl Action for ListMailboxes {
             "accountId": ctx.account_id,
         });
 
-        let data = ctx.jmap.call_one(
-            CAPABILITY,
-            "Mailbox/get",
-            args,
-        )?;
+        let data = ctx.jmap.call_one(CAPABILITY, "Mailbox/get", args)?;
 
         let list = data.get("list").cloned().unwrap_or(serde_json::json!([]));
 
@@ -83,7 +86,10 @@ impl Action for ListMailboxes {
             })
             .unwrap_or_default();
 
-        Ok(project_fields_array(&serde_json::json!(filtered), LIST_FIELDS))
+        Ok(project_fields_array(
+            &serde_json::json!(filtered),
+            LIST_FIELDS,
+        ))
     }
 }
 
@@ -100,24 +106,29 @@ impl ManageMailbox {
     /// Parse the MCP `manage_mailbox` arguments into a variant, validating that
     /// each operation's required fields are present. This is the MCP trust boundary;
     /// CLI callers construct the variant directly.
-    pub fn parse(action: &str, name: String, mailbox_id: String, parent_id: String) -> Result<Self> {
+    pub fn parse(
+        action: &str,
+        name: String,
+        mailbox_id: String,
+        parent_id: String,
+    ) -> Result<Self> {
         match action {
-            "create" if name.is_empty() => {
-                Err(Error::InvalidParams("name is required for create".to_string()))
-            }
+            "create" if name.is_empty() => Err(Error::InvalidParams(
+                "name is required for create".to_string(),
+            )),
             "create" => Ok(Self::Create { name, parent_id }),
 
-            "rename" if mailbox_id.is_empty() => {
-                Err(Error::InvalidParams("mailboxId is required for rename".to_string()))
-            }
-            "rename" if name.is_empty() => {
-                Err(Error::InvalidParams("name is required for rename".to_string()))
-            }
+            "rename" if mailbox_id.is_empty() => Err(Error::InvalidParams(
+                "mailboxId is required for rename".to_string(),
+            )),
+            "rename" if name.is_empty() => Err(Error::InvalidParams(
+                "name is required for rename".to_string(),
+            )),
             "rename" => Ok(Self::Rename { mailbox_id, name }),
 
-            "delete" if mailbox_id.is_empty() => {
-                Err(Error::InvalidParams("mailboxId is required for delete".to_string()))
-            }
+            "delete" if mailbox_id.is_empty() => Err(Error::InvalidParams(
+                "mailboxId is required for delete".to_string(),
+            )),
             "delete" => Ok(Self::Delete { mailbox_id }),
 
             "" => Err(Error::InvalidParams("action is required".to_string())),
@@ -222,7 +233,10 @@ mod tests {
         assert!(arr[0]["parentId"].is_null());
         assert_eq!(arr[1]["totalEmails"], 10);
         assert_eq!(arr[1]["unreadEmails"], 0);
-        assert!(arr[0].get("sortOrder").is_none(), "non-LIST_FIELDS should be stripped");
+        assert!(
+            arr[0].get("sortOrder").is_none(),
+            "non-LIST_FIELDS should be stripped"
+        );
     }
 
     #[test]

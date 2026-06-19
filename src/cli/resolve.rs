@@ -1,8 +1,8 @@
 use crate::actions::mailbox::ListMailboxes;
-use crate::json;
 use crate::actions::{Action, Context};
 use crate::cli::io::{Io, OutputMode};
 use crate::error::{Error, Result};
+use crate::json;
 
 /// Built-in role aliases that map to JMAP mailbox role values.
 const ROLE_ALIASES: &[(&str, &str)] = &[
@@ -39,9 +39,9 @@ pub fn resolve_mailbox(input: &str, ctx: &Context, io: &Io) -> Result<String> {
     let value = action.run(ctx);
     Io::finish_progress(spinner);
     let value = value?;
-    let mailboxes = value.as_array().ok_or_else(|| {
-        Error::InvalidParams("failed to fetch mailbox list".to_string())
-    })?;
+    let mailboxes = value
+        .as_array()
+        .ok_or_else(|| Error::InvalidParams("failed to fetch mailbox list".to_string()))?;
 
     // Step 1: Check if input is a role alias
     let input_lower = input.to_lowercase();
@@ -86,10 +86,7 @@ fn find_by_role(mailboxes: &[serde_json::Value], role: &str) -> Option<String> {
 
 /// Match mailboxes by name: exact, then prefix, then substring (case-insensitive).
 /// Returns (id, name) pairs. Stops at the first tier that produces results.
-fn match_by_name(
-    mailboxes: &[serde_json::Value],
-    input: &str,
-) -> Vec<(String, String)> {
+fn match_by_name(mailboxes: &[serde_json::Value], input: &str) -> Vec<(String, String)> {
     let entries: Vec<(String, String)> = mailboxes
         .iter()
         .filter_map(|m| {
@@ -129,23 +126,17 @@ fn match_by_name(
 
 /// Disambiguate multiple mailbox matches.
 /// Human mode: interactive selection. Non-interactive: error with candidates.
-fn disambiguate(
-    candidates: &[(String, String)],
-    input: &str,
-    io: &Io,
-) -> Result<String> {
+fn disambiguate(candidates: &[(String, String)], input: &str, io: &Io) -> Result<String> {
     if io.mode() == OutputMode::Human {
         let options: Vec<String> = candidates
             .iter()
             .map(|(id, name)| format!("{name}  ({id})"))
             .collect();
 
-        let selection = inquire::Select::new(
-            &format!("Multiple mailboxes match \"{input}\":"),
-            options,
-        )
-        .prompt()
-        .map_err(|e| Error::InvalidParams(format!("selection cancelled: {e}")))?;
+        let selection =
+            inquire::Select::new(&format!("Multiple mailboxes match \"{input}\":"), options)
+                .prompt()
+                .map_err(|e| Error::InvalidParams(format!("selection cancelled: {e}")))?;
 
         // Extract ID from the selection string "Name  (id)"
         let id = candidates
@@ -231,9 +222,7 @@ mod tests {
 
     #[test]
     fn test_match_by_name_no_match() {
-        let mailboxes = vec![
-            serde_json::json!({"id": "mb-1", "name": "Projects"}),
-        ];
+        let mailboxes = vec![serde_json::json!({"id": "mb-1", "name": "Projects"})];
         let result = match_by_name(&mailboxes, "xyz");
         assert!(result.is_empty());
     }

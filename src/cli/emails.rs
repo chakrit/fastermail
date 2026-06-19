@@ -1,5 +1,5 @@
-use clap::Subcommand;
 use crate::json;
+use clap::Subcommand;
 
 use crate::actions::email::{
     BodyFormat, DeleteEmail, Flag, FlagEmail, GetEmailBody, GetEmails, MoveEmail, SearchEmails,
@@ -342,10 +342,7 @@ fn format_email_list(io: &Io, value: &serde_json::Value) {
     io.data(&"─".repeat(80));
 
     for email in emails {
-        let id = email
-            .get("id")
-            .and_then(|v| v.as_str())
-            .unwrap_or("?");
+        let id = email.get("id").and_then(|v| v.as_str()).unwrap_or("?");
         let date = email
             .get("date")
             .or_else(|| email.get("receivedAt"))
@@ -401,16 +398,8 @@ fn format_email_body(io: &Io, value: &serde_json::Value) {
         console::style("Subject:").bold(),
         subject
     ));
-    io.data(&format!(
-        "{}    {}",
-        console::style("From:").bold(),
-        from
-    ));
-    io.data(&format!(
-        "{}    {}",
-        console::style("Date:").bold(),
-        date
-    ));
+    io.data(&format!("{}    {}", console::style("From:").bold(), from));
+    io.data(&format!("{}    {}", console::style("Date:").bold(), date));
     io.separator();
 
     // Show body content
@@ -455,10 +444,7 @@ fn format_address(addr: &serde_json::Value) -> String {
 /// Truncate a datetime string to "YYYY-MM-DD HH:MM" for display.
 fn truncate_date(s: &str) -> String {
     // Input: "2024-03-15T09:30:00Z" → "2024-03-15 09:30"
-    s.replace('T', " ")
-        .chars()
-        .take(16)
-        .collect()
+    s.replace('T', " ").chars().take(16).collect()
 }
 
 /// Truncate a string to max length, appending "…" if truncated.

@@ -3,7 +3,7 @@ use std::io::{self, BufRead, Write};
 use crate::actions::Context;
 use crate::mcp::handler;
 use crate::mcp::types::{
-    JsonRpcRequest, JsonRpcResponse, INVALID_REQUEST, METHOD_NOT_FOUND, PARSE_ERROR,
+    INVALID_REQUEST, JsonRpcRequest, JsonRpcResponse, METHOD_NOT_FOUND, PARSE_ERROR,
 };
 
 /// Run the MCP server stdio loop.
@@ -133,9 +133,8 @@ fn write_response(
     ctx: &Context,
     method: &str,
 ) -> io::Result<()> {
-    let json = serde_json::to_string(response).map_err(|e| {
-        io::Error::other(format!("serialize error: {e}"))
-    })?;
+    let json = serde_json::to_string(response)
+        .map_err(|e| io::Error::other(format!("serialize error: {e}")))?;
 
     log_trace!("mcp", "send: {json}");
 

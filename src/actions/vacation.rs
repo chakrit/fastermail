@@ -1,8 +1,15 @@
-use crate::actions::{project_fields, Action, Context};
+use crate::actions::{Action, Context, project_fields};
 use crate::error::Result;
 use crate::mcp::types::Tool;
 
-const GET_FIELDS: &[&str] = &["isEnabled", "fromDate", "toDate", "subject", "textBody", "htmlBody"];
+const GET_FIELDS: &[&str] = &[
+    "isEnabled",
+    "fromDate",
+    "toDate",
+    "subject",
+    "textBody",
+    "htmlBody",
+];
 
 pub fn tools() -> Vec<Tool> {
     vec![
@@ -173,7 +180,10 @@ mod tests {
         assert_eq!(result["subject"], "OOO");
         assert_eq!(result["textBody"], "Away");
         assert_eq!(result["htmlBody"], "<p>Away</p>");
-        assert!(result.get("extraField").is_none(), "extraField must be excluded");
+        assert!(
+            result.get("extraField").is_none(),
+            "extraField must be excluded"
+        );
     }
 
     #[test]

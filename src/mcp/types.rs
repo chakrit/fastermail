@@ -203,8 +203,8 @@ mod tests {
 
     #[test]
     fn tool_call_params_defaults_to_empty_when_missing() {
-        let params: ToolCallParams = serde_json::from_value(serde_json::json!({}))
-            .expect("should parse empty params");
+        let params: ToolCallParams =
+            serde_json::from_value(serde_json::json!({})).expect("should parse empty params");
 
         assert!(params.name.is_empty());
         assert_eq!(params.arguments, serde_json::Value::default());
@@ -212,8 +212,8 @@ mod tests {
 
     #[test]
     fn initialize_params_defaults_when_fields_missing() {
-        let params: InitializeParams = serde_json::from_value(serde_json::json!({}))
-            .expect("should parse with defaults");
+        let params: InitializeParams =
+            serde_json::from_value(serde_json::json!({})).expect("should parse with defaults");
 
         assert!(params.protocol_version.is_empty());
         assert!(params.client_info.name.is_empty());
