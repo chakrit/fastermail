@@ -1,5 +1,8 @@
+use std::collections::BTreeMap;
+
+use serde::{Deserialize, Serialize};
+
 use crate::actions::{check_set_errors, project_fields_array, Action, Context};
-use crate::json;
 use crate::error::{Error, Result};
 use crate::jmap::types::back_reference;
 use crate::mcp::types::Tool;
@@ -174,113 +177,158 @@ pub fn tools() -> Vec<Tool> {
     ]
 }
 
-// -- JSContact helpers --
+// -- Wire layer: JSContact ContactCard (RFC 9553), faithful deserialization --
 
-/// Flatten a JSContact ContactCard into a simple JSON shape for MCP consumers.
-fn flatten_contact(card: &serde_json::Value) -> serde_json::Value {
-    let id = card.get("id").cloned().unwrap_or(serde_json::json!(""));
-
-    let name = extract_full_name(card);
-
-    let emails = flatten_email_map(card.get("emails"));
-    let phones = flatten_phone_map(card.get("phones"));
-    let company = extract_company(card);
-
-    let address_book_ids: Vec<&str> = card
-        .get("addressBookIds")
-        .and_then(|v| v.as_object())
-        .map(|m| m.keys().map(|k| k.as_str()).collect())
-        .unwrap_or_default();
-
-    serde_json::json!({
-        "id": id,
-        "name": name,
-        "emails": emails,
-        "phones": phones,
-        "company": company,
-        "addressBookIds": address_book_ids,
-    })
+#[derive(Debug, Deserialize, Default)]
+#[serde(default)]
+struct WireCard {
+    id: String,
+    name: WireName,
+    emails: BTreeMap<String, WireEmail>,
+    phones: BTreeMap<String, WirePhone>,
+    organizations: BTreeMap<String, WireOrg>,
+    #[serde(rename = "addressBookIds")]
+    address_book_ids: BTreeMap<String, bool>,
 }
 
-/// Extract full name from JSContact Name object.
-/// Prefers `name.full`, falls back to joining components.
-fn extract_full_name(card: &serde_json::Value) -> String {
-    let Some(name_obj) = card.get("name") else {
-        return String::new();
-    };
+#[derive(Debug, Deserialize, Default)]
+#[serde(default)]
+struct WireName {
+    full: String,
+    components: Vec<WireNameComponent>,
+}
 
-    if let Some(full) = json::str_at(name_obj, "/full")
-        && !full.is_empty()
-    {
-        return full.to_string();
+#[derive(Debug, Deserialize, Default)]
+#[serde(default)]
+struct WireNameComponent {
+    value: String,
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(default)]
+struct WireEmail {
+    address: String,
+    contexts: BTreeMap<String, bool>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(default)]
+struct WirePhone {
+    number: String,
+    contexts: BTreeMap<String, bool>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(default)]
+struct WireOrg {
+    name: String,
+}
+
+// -- Internal model: the flat shape MCP/CLI consumers see --
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum ContactContext {
+    Work,
+    Private,
+    Other,
+}
+
+impl ContactContext {
+    /// JSContact records context as a `{ "work": true }` map; first recognized
+    /// key wins, preserving the original precedence.
+    fn from_map(contexts: &BTreeMap<String, bool>) -> Self {
+        if contexts.contains_key("work") {
+            Self::Work
+        } else if contexts.contains_key("private") {
+            Self::Private
+        } else {
+            Self::Other
+        }
     }
+}
 
-    name_obj
-        .get("components")
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|c| json::str_at(c, "/value"))
+#[derive(Debug, Serialize)]
+struct ContactEmail {
+    #[serde(rename = "type")]
+    context: ContactContext,
+    address: String,
+}
+
+#[derive(Debug, Serialize)]
+struct ContactPhone {
+    #[serde(rename = "type")]
+    context: ContactContext,
+    number: String,
+}
+
+#[derive(Debug, Serialize)]
+struct Contact {
+    id: String,
+    name: String,
+    emails: Vec<ContactEmail>,
+    phones: Vec<ContactPhone>,
+    company: String,
+    #[serde(rename = "addressBookIds")]
+    address_book_ids: Vec<String>,
+}
+
+impl From<WireCard> for Contact {
+    fn from(card: WireCard) -> Self {
+        let name = if card.name.full.is_empty() {
+            card.name
+                .components
+                .iter()
+                .map(|c| c.value.as_str())
+                .filter(|v| !v.is_empty())
                 .collect::<Vec<_>>()
                 .join(" ")
-        })
-        .unwrap_or_default()
-}
+        } else {
+            card.name.full
+        };
 
-/// Flatten JSContact Id[EmailAddress] map into [{type, address}].
-fn flatten_email_map(emails: Option<&serde_json::Value>) -> Vec<serde_json::Value> {
-    let Some(map) = emails.and_then(|v| v.as_object()) else {
-        return Vec::new();
-    };
+        let emails = card
+            .emails
+            .into_values()
+            .filter(|e| !e.address.is_empty())
+            .map(|e| ContactEmail {
+                context: ContactContext::from_map(&e.contexts),
+                address: e.address,
+            })
+            .collect();
 
-    map.values()
-        .filter_map(|entry| {
-            let address = json::str_at(entry, "/address")?;
-            let ctx_type = context_type(entry);
-            Some(serde_json::json!({ "type": ctx_type, "address": address }))
-        })
-        .collect()
-}
+        let phones = card
+            .phones
+            .into_values()
+            .filter(|p| !p.number.is_empty())
+            .map(|p| ContactPhone {
+                context: ContactContext::from_map(&p.contexts),
+                number: p.number,
+            })
+            .collect();
 
-/// Flatten JSContact Id[Phone] map into [{type, number}].
-fn flatten_phone_map(phones: Option<&serde_json::Value>) -> Vec<serde_json::Value> {
-    let Some(map) = phones.and_then(|v| v.as_object()) else {
-        return Vec::new();
-    };
+        let company = card
+            .organizations
+            .into_values()
+            .next()
+            .map(|o| o.name)
+            .unwrap_or_default();
 
-    map.values()
-        .filter_map(|entry| {
-            let number = json::str_at(entry, "/number")?;
-            let ctx_type = context_type(entry);
-            Some(serde_json::json!({ "type": ctx_type, "number": number }))
-        })
-        .collect()
-}
-
-/// Derive a type label from JSContact `contexts` map.
-fn context_type(entry: &serde_json::Value) -> &str {
-    let Some(contexts) = entry.get("contexts").and_then(|v| v.as_object()) else {
-        return "other";
-    };
-
-    if contexts.contains_key("work") {
-        "work"
-    } else if contexts.contains_key("private") {
-        "private"
-    } else {
-        "other"
+        Contact {
+            id: card.id,
+            name,
+            emails,
+            phones,
+            company,
+            address_book_ids: card.address_book_ids.into_keys().collect(),
+        }
     }
 }
 
-/// Extract first organization name from JSContact organizations map.
-fn extract_company(card: &serde_json::Value) -> String {
-    card.get("organizations")
-        .and_then(|v| v.as_object())
-        .and_then(|m| m.values().next())
-        .and_then(|org| org.get("name"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string()
+/// Flatten a JSContact ContactCard into the simple shape MCP/CLI consumers expect.
+fn flatten_contact(card: &serde_json::Value) -> serde_json::Value {
+    let wire: WireCard = serde_json::from_value(card.clone()).unwrap_or_default();
+    serde_json::to_value(Contact::from(wire)).unwrap_or_else(|_| serde_json::json!({}))
 }
 
 /// Build JSContact emails map from flat [{type, address}] array.
@@ -651,54 +699,39 @@ mod tests {
     }
 
     #[test]
-    fn flatten_email_map_extracts_addresses() {
-        let emails = json!({
-            "e0": { "address": "a@b.com", "contexts": { "work": true } },
-            "e1": { "address": "c@d.com", "contexts": { "private": true } },
-            "e2": { "address": "e@f.com" },
-        });
-        let result = flatten_email_map(Some(&emails));
-        assert_eq!(result.len(), 3);
-
-        let addresses: Vec<&str> = result
-            .iter()
-            .filter_map(|e| json::str_at(e, "/address"))
-            .collect();
-        assert!(addresses.contains(&"a@b.com"));
-        assert!(addresses.contains(&"c@d.com"));
-        assert!(addresses.contains(&"e@f.com"));
-    }
-
-    #[test]
-    fn flatten_email_map_returns_empty_for_none() {
-        assert!(flatten_email_map(None).is_empty());
-    }
-
-    #[test]
-    fn flatten_phone_map_extracts_numbers() {
-        let phones = json!({
-            "p0": { "number": "+1234", "contexts": { "work": true } },
-        });
-        let result = flatten_phone_map(Some(&phones));
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0]["number"], "+1234");
-        assert_eq!(result[0]["type"], "work");
-    }
-
-    #[test]
-    fn extract_company_gets_first_org() {
+    fn flatten_contact_extracts_emails_phones_company() {
         let card = json!({
-            "organizations": {
-                "o0": { "name": "Acme Corp" }
-            }
+            "id": "c1",
+            "name": { "full": "Jane Roe" },
+            "emails": {
+                "e0": { "address": "a@b.com", "contexts": { "work": true } },
+                "e1": { "address": "c@d.com" }
+            },
+            "phones": { "p0": { "number": "+1234", "contexts": { "private": true } } },
+            "organizations": { "o0": { "name": "Acme Corp" } }
         });
-        assert_eq!(extract_company(&card), "Acme Corp");
-    }
+        let flat = flatten_contact(&card);
 
-    #[test]
-    fn extract_company_returns_empty_when_missing() {
-        let card = json!({});
-        assert_eq!(extract_company(&card), "");
+        assert_eq!(flat["name"], "Jane Roe");
+        assert_eq!(flat["company"], "Acme Corp");
+
+        let emails = flat["emails"].as_array().expect("emails array");
+        assert_eq!(emails.len(), 2);
+        let work = emails
+            .iter()
+            .find(|e| e["address"] == "a@b.com")
+            .expect("work email");
+        assert_eq!(work["type"], "work");
+        let other = emails
+            .iter()
+            .find(|e| e["address"] == "c@d.com")
+            .expect("other email");
+        assert_eq!(other["type"], "other");
+
+        let phones = flat["phones"].as_array().expect("phones array");
+        assert_eq!(phones.len(), 1);
+        assert_eq!(phones[0]["number"], "+1234");
+        assert_eq!(phones[0]["type"], "private");
     }
 
     #[test]
@@ -728,24 +761,6 @@ mod tests {
         assert_eq!(obj.len(), 1);
         assert_eq!(obj["p0"]["number"], "+5678");
         assert_eq!(obj["p0"]["contexts"]["private"], true);
-    }
-
-    #[test]
-    fn context_type_returns_work() {
-        let entry = json!({ "contexts": { "work": true } });
-        assert_eq!(context_type(&entry), "work");
-    }
-
-    #[test]
-    fn context_type_returns_private() {
-        let entry = json!({ "contexts": { "private": true } });
-        assert_eq!(context_type(&entry), "private");
-    }
-
-    #[test]
-    fn context_type_returns_other_when_missing() {
-        let entry = json!({});
-        assert_eq!(context_type(&entry), "other");
     }
 
     // -- Action tests --
