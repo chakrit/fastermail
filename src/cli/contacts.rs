@@ -2,7 +2,8 @@ use clap::Subcommand;
 use crate::json;
 
 use crate::actions::contact::{
-    CreateContact, DeleteContact, GetContacts, ListAddressBooks, SearchContacts, UpdateContact,
+    ContactEmail, ContactPatch, ContactPhone, CreateContact, DeleteContact, GetContacts,
+    ListAddressBooks, SearchContacts, UpdateContact,
 };
 use crate::actions::{Action, Context};
 use crate::cli::io::{Io, OutputMode};
@@ -134,8 +135,14 @@ pub fn run(cmd: ContactCommand, ctx: &Context, io: &Io) -> Result<()> {
             let spinner = io.progress("Creating contact…");
             let action = CreateContact {
                 name: name.clone(),
-                emails: parse_typed_values(&email, "address"),
-                phones: parse_typed_values(&phone, "number"),
+                emails: parse_typed_values(&email, "address")
+                    .iter()
+                    .map(ContactEmail::from_input)
+                    .collect(),
+                phones: parse_typed_values(&phone, "number")
+                    .iter()
+                    .map(ContactPhone::from_input)
+                    .collect(),
                 company: company.unwrap_or_default(),
                 notes: notes.unwrap_or_default(),
                 address_book_id: address_book.unwrap_or_default(),
@@ -166,15 +173,23 @@ pub fn run(cmd: ContactCommand, ctx: &Context, io: &Io) -> Result<()> {
             let spinner = io.progress("Updating contact…");
             let action = UpdateContact {
                 contact_id,
-                name: name.clone().unwrap_or_default(),
-                emails: parse_typed_values(&email, "address"),
-                phones: parse_typed_values(&phone, "number"),
-                company: company.clone().unwrap_or_default(),
-                notes: notes.clone().unwrap_or_default(),
-                has_emails: !email.is_empty(),
-                has_phones: !phone.is_empty(),
-                has_company: company.is_some(),
-                has_notes: notes.is_some(),
+                patch: ContactPatch {
+                    name: name.clone().filter(|n| !n.is_empty()),
+                    emails: (!email.is_empty()).then(|| {
+                        parse_typed_values(&email, "address")
+                            .iter()
+                            .map(ContactEmail::from_input)
+                            .collect()
+                    }),
+                    phones: (!phone.is_empty()).then(|| {
+                        parse_typed_values(&phone, "number")
+                            .iter()
+                            .map(ContactPhone::from_input)
+                            .collect()
+                    }),
+                    company: company.clone(),
+                    notes: notes.clone(),
+                },
             };
             let result = action.run(ctx);
             Io::finish_progress(spinner);

@@ -235,8 +235,14 @@ fn dispatch_tool(
         "create_contact" => {
             let action = contact::CreateContact {
                 name: str_param(args, "name"),
-                emails: json_array_param(args, "emails"),
-                phones: json_array_param(args, "phones"),
+                emails: json_array_param(args, "emails")
+                    .iter()
+                    .map(contact::ContactEmail::from_input)
+                    .collect(),
+                phones: json_array_param(args, "phones")
+                    .iter()
+                    .map(contact::ContactPhone::from_input)
+                    .collect(),
                 company: str_param(args, "company"),
                 notes: str_param(args, "notes"),
                 address_book_id: str_param(args, "addressBookId"),
@@ -244,17 +250,27 @@ fn dispatch_tool(
             action.run(ctx)
         }
         "update_contact" => {
+            let name = str_param(args, "name");
+            let patch = contact::ContactPatch {
+                name: (!name.is_empty()).then_some(name),
+                emails: args.get("emails").map(|_| {
+                    json_array_param(args, "emails")
+                        .iter()
+                        .map(contact::ContactEmail::from_input)
+                        .collect()
+                }),
+                phones: args.get("phones").map(|_| {
+                    json_array_param(args, "phones")
+                        .iter()
+                        .map(contact::ContactPhone::from_input)
+                        .collect()
+                }),
+                company: args.get("company").map(|_| str_param(args, "company")),
+                notes: args.get("notes").map(|_| str_param(args, "notes")),
+            };
             let action = contact::UpdateContact {
                 contact_id: str_param(args, "contactId"),
-                name: str_param(args, "name"),
-                emails: json_array_param(args, "emails"),
-                phones: json_array_param(args, "phones"),
-                company: str_param(args, "company"),
-                notes: str_param(args, "notes"),
-                has_emails: args.get("emails").is_some(),
-                has_phones: args.get("phones").is_some(),
-                has_company: args.get("company").is_some(),
-                has_notes: args.get("notes").is_some(),
+                patch,
             };
             action.run(ctx)
         }

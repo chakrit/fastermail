@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::actions::{check_set_errors, project_fields_array, Action, Context};
+use crate::json;
 use crate::error::{Error, Result};
 use crate::jmap::types::back_reference;
 use crate::mcp::types::Tool;
@@ -246,20 +247,87 @@ impl ContactContext {
             Self::Other
         }
     }
+
+    /// Parse the `type` label from a create/update input; unknown or absent maps to Other.
+    fn from_label(label: &str) -> Self {
+        match label {
+            "work" => Self::Work,
+            "private" => Self::Private,
+            _ => Self::Other,
+        }
+    }
+
+    /// The JSContact `contexts` key to emit, or None for Other (which omits contexts).
+    fn wire_key(self) -> Option<&'static str> {
+        match self {
+            Self::Work => Some("work"),
+            Self::Private => Some("private"),
+            Self::Other => None,
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
-struct ContactEmail {
+pub struct ContactEmail {
     #[serde(rename = "type")]
     context: ContactContext,
     address: String,
 }
 
+impl ContactEmail {
+    /// Parse a create/update input object (`{ "type", "address" }`).
+    pub fn from_input(v: &serde_json::Value) -> Self {
+        ContactEmail {
+            context: ContactContext::from_label(json::str_at(v, "/type").unwrap_or("")),
+            address: json::str_at(v, "/address").unwrap_or("").to_string(),
+        }
+    }
+
+    /// Serialize to a JSContact EmailAddress object.
+    fn to_wire(&self) -> serde_json::Value {
+        let mut obj = serde_json::json!({ "@type": "EmailAddress", "address": self.address });
+        if let Some(key) = self.context.wire_key() {
+            obj["contexts"] = serde_json::json!({ key: true });
+        }
+        obj
+    }
+}
+
 #[derive(Debug, Serialize)]
-struct ContactPhone {
+pub struct ContactPhone {
     #[serde(rename = "type")]
     context: ContactContext,
     number: String,
+}
+
+impl ContactPhone {
+    /// Parse a create/update input object (`{ "type", "number" }`).
+    pub fn from_input(v: &serde_json::Value) -> Self {
+        ContactPhone {
+            context: ContactContext::from_label(json::str_at(v, "/type").unwrap_or("")),
+            number: json::str_at(v, "/number").unwrap_or("").to_string(),
+        }
+    }
+
+    /// Serialize to a JSContact Phone object.
+    fn to_wire(&self) -> serde_json::Value {
+        let mut obj = serde_json::json!({ "@type": "Phone", "number": self.number });
+        if let Some(key) = self.context.wire_key() {
+            obj["contexts"] = serde_json::json!({ key: true });
+        }
+        obj
+    }
+}
+
+/// A partial contact update: `None` leaves a field unchanged, `Some` sets it
+/// (`Some` empty string / list clears it).
+#[derive(Debug, Default)]
+pub struct ContactPatch {
+    pub name: Option<String>,
+    pub emails: Option<Vec<ContactEmail>>,
+    pub phones: Option<Vec<ContactPhone>>,
+    pub company: Option<String>,
+    pub notes: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -331,57 +399,25 @@ fn flatten_contact(card: &serde_json::Value) -> serde_json::Value {
     serde_json::to_value(Contact::from(wire)).unwrap_or_else(|_| serde_json::json!({}))
 }
 
-/// Build JSContact emails map from flat [{type, address}] array.
-fn build_email_map(emails: &[serde_json::Value]) -> serde_json::Value {
-    let mut map = serde_json::Map::new();
-    for (i, entry) in emails.iter().enumerate() {
-        let address = entry
-            .get("address")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let ctx_type = entry
-            .get("type")
-            .and_then(|v| v.as_str())
-            .unwrap_or("other");
+// -- model -> JSContact wire (writes) --
 
-        let mut email_obj = serde_json::json!({
-            "@type": "EmailAddress",
-            "address": address,
-        });
-
-        if ctx_type != "other" {
-            email_obj["contexts"] = serde_json::json!({ ctx_type: true });
-        }
-
-        map.insert(format!("e{i}"), email_obj);
-    }
+/// Build JSContact emails map from typed emails.
+fn email_map(emails: &[ContactEmail]) -> serde_json::Value {
+    let map: serde_json::Map<String, serde_json::Value> = emails
+        .iter()
+        .enumerate()
+        .map(|(i, e)| (format!("e{i}"), e.to_wire()))
+        .collect();
     serde_json::Value::Object(map)
 }
 
-/// Build JSContact phones map from flat [{type, number}] array.
-fn build_phone_map(phones: &[serde_json::Value]) -> serde_json::Value {
-    let mut map = serde_json::Map::new();
-    for (i, entry) in phones.iter().enumerate() {
-        let number = entry
-            .get("number")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let ctx_type = entry
-            .get("type")
-            .and_then(|v| v.as_str())
-            .unwrap_or("other");
-
-        let mut phone_obj = serde_json::json!({
-            "@type": "Phone",
-            "number": number,
-        });
-
-        if ctx_type != "other" {
-            phone_obj["contexts"] = serde_json::json!({ ctx_type: true });
-        }
-
-        map.insert(format!("p{i}"), phone_obj);
-    }
+/// Build JSContact phones map from typed phones.
+fn phone_map(phones: &[ContactPhone]) -> serde_json::Value {
+    let map: serde_json::Map<String, serde_json::Value> = phones
+        .iter()
+        .enumerate()
+        .map(|(i, p)| (format!("p{i}"), p.to_wire()))
+        .collect();
     serde_json::Value::Object(map)
 }
 
@@ -491,8 +527,8 @@ impl Action for SearchContacts {
 
 pub struct CreateContact {
     pub name: String,
-    pub emails: Vec<serde_json::Value>,
-    pub phones: Vec<serde_json::Value>,
+    pub emails: Vec<ContactEmail>,
+    pub phones: Vec<ContactPhone>,
     pub company: String,
     pub notes: String,
     pub address_book_id: String,
@@ -511,11 +547,11 @@ impl Action for CreateContact {
         });
 
         if !self.emails.is_empty() {
-            card["emails"] = build_email_map(&self.emails);
+            card["emails"] = email_map(&self.emails);
         }
 
         if !self.phones.is_empty() {
-            card["phones"] = build_phone_map(&self.phones);
+            card["phones"] = phone_map(&self.phones);
         }
 
         if !self.company.is_empty() {
@@ -553,15 +589,7 @@ impl Action for CreateContact {
 
 pub struct UpdateContact {
     pub contact_id: String,
-    pub name: String,
-    pub emails: Vec<serde_json::Value>,
-    pub phones: Vec<serde_json::Value>,
-    pub company: String,
-    pub notes: String,
-    pub has_emails: bool,
-    pub has_phones: bool,
-    pub has_company: bool,
-    pub has_notes: bool,
+    pub patch: ContactPatch,
 }
 
 impl Action for UpdateContact {
@@ -570,11 +598,12 @@ impl Action for UpdateContact {
             return Err(Error::InvalidParams("contactId is required".to_string()));
         }
 
-        let has_updates = !self.name.is_empty()
-            || self.has_emails
-            || self.has_phones
-            || self.has_company
-            || self.has_notes;
+        let p = &self.patch;
+        let has_updates = p.name.is_some()
+            || p.emails.is_some()
+            || p.phones.is_some()
+            || p.company.is_some()
+            || p.notes.is_some();
 
         if !has_updates {
             return Err(Error::InvalidParams(
@@ -584,40 +613,37 @@ impl Action for UpdateContact {
 
         let mut patches = serde_json::Map::new();
 
-        if !self.name.is_empty() {
+        if let Some(name) = &p.name {
             patches.insert(
                 "name".to_string(),
-                serde_json::json!({ "@type": "Name", "full": self.name }),
+                serde_json::json!({ "@type": "Name", "full": name }),
             );
         }
 
-        if self.has_emails {
-            patches.insert("emails".to_string(), build_email_map(&self.emails));
+        if let Some(emails) = &p.emails {
+            patches.insert("emails".to_string(), email_map(emails));
         }
 
-        if self.has_phones {
-            patches.insert("phones".to_string(), build_phone_map(&self.phones));
+        if let Some(phones) = &p.phones {
+            patches.insert("phones".to_string(), phone_map(phones));
         }
 
-        if self.has_company {
-            if self.company.is_empty() {
-                patches.insert("organizations".to_string(), serde_json::json!(null));
+        if let Some(company) = &p.company {
+            let org = if company.is_empty() {
+                serde_json::json!(null)
             } else {
-                patches.insert(
-                    "organizations".to_string(),
-                    serde_json::json!({
-                        "o0": { "@type": "Organization", "name": self.company }
-                    }),
-                );
-            }
+                serde_json::json!({ "o0": { "@type": "Organization", "name": company } })
+            };
+            patches.insert("organizations".to_string(), org);
         }
 
-        if self.has_notes {
-            if self.notes.is_empty() {
-                patches.insert("notes".to_string(), serde_json::json!(null));
+        if let Some(notes) = &p.notes {
+            let value = if notes.is_empty() {
+                serde_json::json!(null)
             } else {
-                patches.insert("notes".to_string(), serde_json::json!(self.notes));
-            }
+                serde_json::json!(notes)
+            };
+            patches.insert("notes".to_string(), value);
         }
 
         let args = serde_json::json!({
@@ -735,12 +761,12 @@ mod tests {
     }
 
     #[test]
-    fn build_email_map_creates_jscontact_structure() {
+    fn email_map_creates_jscontact_structure() {
         let input = vec![
-            json!({ "type": "work", "address": "a@b.com" }),
-            json!({ "address": "c@d.com" }),
+            ContactEmail::from_input(&json!({ "type": "work", "address": "a@b.com" })),
+            ContactEmail::from_input(&json!({ "address": "c@d.com" })),
         ];
-        let map = build_email_map(&input);
+        let map = email_map(&input);
         let obj = map.as_object().expect("should be object");
         assert_eq!(obj.len(), 2);
 
@@ -754,9 +780,11 @@ mod tests {
     }
 
     #[test]
-    fn build_phone_map_creates_jscontact_structure() {
-        let input = vec![json!({ "type": "private", "number": "+5678" })];
-        let map = build_phone_map(&input);
+    fn phone_map_creates_jscontact_structure() {
+        let input = vec![ContactPhone::from_input(
+            &json!({ "type": "private", "number": "+5678" }),
+        )];
+        let map = phone_map(&input);
         let obj = map.as_object().expect("should be object");
         assert_eq!(obj.len(), 1);
         assert_eq!(obj["p0"]["number"], "+5678");
@@ -987,7 +1015,9 @@ mod tests {
 
         let result = CreateContact {
             name: "Bob".to_string(),
-            emails: vec![json!({ "type": "work", "address": "bob@example.com" })],
+            emails: vec![ContactEmail::from_input(
+                &json!({ "type": "work", "address": "bob@example.com" }),
+            )],
             phones: Vec::new(),
             company: "Acme".to_string(),
             notes: "A note".to_string(),
@@ -1010,15 +1040,10 @@ mod tests {
 
         let err = UpdateContact {
             contact_id: String::new(),
-            name: "New Name".to_string(),
-            emails: Vec::new(),
-            phones: Vec::new(),
-            company: String::new(),
-            notes: String::new(),
-            has_emails: false,
-            has_phones: false,
-            has_company: false,
-            has_notes: false,
+            patch: ContactPatch {
+                name: Some("New Name".to_string()),
+                ..Default::default()
+            },
         }
         .run(&ctx)
         .expect_err("should require contactId");
@@ -1036,15 +1061,7 @@ mod tests {
 
         let err = UpdateContact {
             contact_id: "c1".to_string(),
-            name: String::new(),
-            emails: Vec::new(),
-            phones: Vec::new(),
-            company: String::new(),
-            notes: String::new(),
-            has_emails: false,
-            has_phones: false,
-            has_company: false,
-            has_notes: false,
+            patch: ContactPatch::default(),
         }
         .run(&ctx)
         .expect_err("should require at least one field");
@@ -1073,15 +1090,10 @@ mod tests {
 
         let result = UpdateContact {
             contact_id: "c1".to_string(),
-            name: "Updated Name".to_string(),
-            emails: Vec::new(),
-            phones: Vec::new(),
-            company: String::new(),
-            notes: String::new(),
-            has_emails: false,
-            has_phones: false,
-            has_company: false,
-            has_notes: false,
+            patch: ContactPatch {
+                name: Some("Updated Name".to_string()),
+                ..Default::default()
+            },
         }
         .run(&ctx)
         .expect("run");
@@ -1183,15 +1195,15 @@ mod tests {
     }
 
     #[test]
-    fn build_email_map_empty_input() {
-        let map = build_email_map(&[]);
+    fn email_map_empty_input() {
+        let map = email_map(&[]);
         let obj = map.as_object().expect("should be object");
         assert!(obj.is_empty());
     }
 
     #[test]
-    fn build_phone_map_empty_input() {
-        let map = build_phone_map(&[]);
+    fn phone_map_empty_input() {
+        let map = phone_map(&[]);
         let obj = map.as_object().expect("should be object");
         assert!(obj.is_empty());
     }
@@ -1218,15 +1230,11 @@ mod tests {
 
         let result = UpdateContact {
             contact_id: "c1".to_string(),
-            name: String::new(),
-            emails: Vec::new(),
-            phones: Vec::new(),
-            company: String::new(),
-            notes: String::new(),
-            has_emails: false,
-            has_phones: false,
-            has_company: true,
-            has_notes: true,
+            patch: ContactPatch {
+                company: Some(String::new()),
+                notes: Some(String::new()),
+                ..Default::default()
+            },
         }
         .run(&ctx)
         .expect("clearing fields should succeed");
@@ -1256,15 +1264,15 @@ mod tests {
 
         let result = UpdateContact {
             contact_id: "c1".to_string(),
-            name: String::new(),
-            emails: vec![json!({"type": "work", "address": "new@example.com"})],
-            phones: vec![json!({"type": "private", "number": "+9999"})],
-            company: String::new(),
-            notes: String::new(),
-            has_emails: true,
-            has_phones: true,
-            has_company: false,
-            has_notes: false,
+            patch: ContactPatch {
+                emails: Some(vec![ContactEmail::from_input(
+                    &json!({"type": "work", "address": "new@example.com"}),
+                )]),
+                phones: Some(vec![ContactPhone::from_input(
+                    &json!({"type": "private", "number": "+9999"}),
+                )]),
+                ..Default::default()
+            },
         }
         .run(&ctx)
         .expect("update with emails/phones should succeed");
@@ -1299,15 +1307,10 @@ mod tests {
 
         let err = UpdateContact {
             contact_id: "c1".to_string(),
-            name: "X".to_string(),
-            emails: Vec::new(),
-            phones: Vec::new(),
-            company: String::new(),
-            notes: String::new(),
-            has_emails: false,
-            has_phones: false,
-            has_company: false,
-            has_notes: false,
+            patch: ContactPatch {
+                name: Some("X".to_string()),
+                ..Default::default()
+            },
         }
         .run(&ctx)
         .expect_err("should surface notUpdated error");
