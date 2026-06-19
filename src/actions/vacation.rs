@@ -54,30 +54,55 @@ impl Action for GetVacationResponse {
     }
 }
 
-pub struct SetVacationResponse {
-    pub is_enabled: Option<bool>,
-    pub raw_args: serde_json::Value,
+/// A field-level change in a vacation update.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub enum FieldChange {
+    /// Field not provided — leave it unchanged.
+    #[default]
+    Leave,
+    /// Provided empty/null — clear it (set to JSON null).
+    Clear,
+    /// Provided a value — set it.
+    Set(String),
 }
 
-impl SetVacationResponse {
-    /// If a key is present in the raw arguments, return its value for the JMAP update.
-    /// Present with null or empty string -> set to null (clear the field).
-    /// Present with a non-empty string -> set to that string.
-    /// Absent -> don't include (leave unchanged).
-    fn resolve_field(args: &serde_json::Value, key: &str) -> Option<serde_json::Value> {
+impl FieldChange {
+    /// From an MCP argument: absent -> Leave; null or empty string -> Clear; else Set.
+    pub fn from_arg(args: &serde_json::Value, key: &str) -> Self {
         match args.get(key) {
-            None => None,
-            Some(v) if v.is_null() => Some(serde_json::Value::Null),
-            Some(v) => {
-                let s = v.as_str().unwrap_or("");
-                if s.is_empty() {
-                    Some(serde_json::Value::Null)
-                } else {
-                    Some(serde_json::json!(s))
-                }
-            }
+            None => Self::Leave,
+            Some(v) if v.is_null() => Self::Clear,
+            Some(v) => Self::from_opt(Some(v.as_str().unwrap_or("").to_string())),
         }
     }
+
+    /// From a CLI optional argument: None -> Leave; empty -> Clear; else Set.
+    pub fn from_opt(value: Option<String>) -> Self {
+        match value {
+            None => Self::Leave,
+            Some(s) if s.is_empty() => Self::Clear,
+            Some(s) => Self::Set(s),
+        }
+    }
+
+    /// The JSON to write into the update patch, or None to omit the field.
+    fn patch_value(&self) -> Option<serde_json::Value> {
+        match self {
+            Self::Leave => None,
+            Self::Clear => Some(serde_json::Value::Null),
+            Self::Set(s) => Some(serde_json::json!(s)),
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct SetVacationResponse {
+    pub is_enabled: Option<bool>,
+    pub from_date: FieldChange,
+    pub to_date: FieldChange,
+    pub subject: FieldChange,
+    pub text_body: FieldChange,
+    pub html_body: FieldChange,
 }
 
 impl Action for SetVacationResponse {
@@ -86,14 +111,18 @@ impl Action for SetVacationResponse {
             crate::error::Error::InvalidParams("isEnabled is required".to_string())
         })?;
 
-        let mut update = serde_json::json!({
-            "isEnabled": is_enabled
-        });
+        let mut update = serde_json::json!({ "isEnabled": is_enabled });
 
-        let fields = &["fromDate", "toDate", "subject", "textBody", "htmlBody"];
-        for &field in fields {
-            if let Some(value) = Self::resolve_field(&self.raw_args, field) {
-                update[field] = value;
+        let fields = [
+            ("fromDate", &self.from_date),
+            ("toDate", &self.to_date),
+            ("subject", &self.subject),
+            ("textBody", &self.text_body),
+            ("htmlBody", &self.html_body),
+        ];
+        for (key, change) in fields {
+            if let Some(value) = change.patch_value() {
+                update[key] = value;
             }
         }
 
@@ -179,7 +208,7 @@ mod tests {
 
         let action = SetVacationResponse {
             is_enabled: None,
-            raw_args: json!({}),
+            ..Default::default()
         };
 
         let err = action.run(&ctx).expect_err("should fail without isEnabled");
@@ -207,7 +236,7 @@ mod tests {
 
         let action = SetVacationResponse {
             is_enabled: Some(true),
-            raw_args: json!({"isEnabled": true}),
+            ..Default::default()
         };
 
         let result = action.run(&ctx).expect("run should succeed");
@@ -232,7 +261,7 @@ mod tests {
 
         let action = SetVacationResponse {
             is_enabled: Some(false),
-            raw_args: json!({"isEnabled": false}),
+            ..Default::default()
         };
 
         let result = action.run(&ctx).expect("run should succeed");
@@ -240,42 +269,29 @@ mod tests {
     }
 
     #[test]
-    fn resolve_field_returns_none_for_absent() {
+    fn field_change_leaves_absent() {
         let args = json!({"other": "value"});
-        let result = SetVacationResponse::resolve_field(&args, "fromDate");
-        assert!(result.is_none(), "absent key should return None");
+        assert_eq!(FieldChange::from_arg(&args, "fromDate"), FieldChange::Leave);
     }
 
     #[test]
-    fn resolve_field_returns_null_for_null_value() {
+    fn field_change_clears_on_null() {
         let args = json!({"fromDate": null});
-        let result = SetVacationResponse::resolve_field(&args, "fromDate");
-        assert_eq!(
-            result.expect("should be Some"),
-            serde_json::Value::Null,
-            "null value should resolve to Null"
-        );
+        assert_eq!(FieldChange::from_arg(&args, "fromDate"), FieldChange::Clear);
     }
 
     #[test]
-    fn resolve_field_returns_null_for_empty_string() {
+    fn field_change_clears_on_empty_string() {
         let args = json!({"subject": ""});
-        let result = SetVacationResponse::resolve_field(&args, "subject");
-        assert_eq!(
-            result.expect("should be Some"),
-            serde_json::Value::Null,
-            "empty string should resolve to Null"
-        );
+        assert_eq!(FieldChange::from_arg(&args, "subject"), FieldChange::Clear);
     }
 
     #[test]
-    fn resolve_field_returns_value_for_non_empty() {
+    fn field_change_sets_non_empty() {
         let args = json!({"subject": "hello"});
-        let result = SetVacationResponse::resolve_field(&args, "subject");
         assert_eq!(
-            result.expect("should be Some"),
-            json!("hello"),
-            "non-empty string should resolve to that string"
+            FieldChange::from_arg(&args, "subject"),
+            FieldChange::Set("hello".to_string())
         );
     }
 
@@ -297,7 +313,10 @@ mod tests {
 
         let action = SetVacationResponse {
             is_enabled: Some(true),
-            raw_args: json!({"isEnabled": true, "fromDate": "2026-06-01T00:00:00Z", "subject": "On vacation", "textBody": "I'm away"}),
+            from_date: FieldChange::Set("2026-06-01T00:00:00Z".to_string()),
+            subject: FieldChange::Set("On vacation".to_string()),
+            text_body: FieldChange::Set("I'm away".to_string()),
+            ..Default::default()
         };
         let result = action
             .run(&ctx)

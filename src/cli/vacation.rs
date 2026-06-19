@@ -1,6 +1,6 @@
 use clap::Subcommand;
 
-use crate::actions::vacation::{GetVacationResponse, SetVacationResponse};
+use crate::actions::vacation::{FieldChange, GetVacationResponse, SetVacationResponse};
 use crate::actions::{Action, Context};
 use crate::cli::io::{Io, OutputMode};
 use crate::error::{Error, Result};
@@ -103,28 +103,14 @@ pub fn run(cmd: VacationCommand, ctx: &Context, io: &Io) -> Result<()> {
 
             let is_enabled = enabled; // if disabled is true, enabled is false
 
-            // Build raw_args for the action's resolve_field() logic
-            let mut raw = serde_json::Map::new();
-            if let Some(v) = from {
-                raw.insert("fromDate".to_string(), serde_json::json!(v));
-            }
-            if let Some(v) = to {
-                raw.insert("toDate".to_string(), serde_json::json!(v));
-            }
-            if let Some(v) = subject {
-                raw.insert("subject".to_string(), serde_json::json!(v));
-            }
-            if let Some(v) = text_body {
-                raw.insert("textBody".to_string(), serde_json::json!(v));
-            }
-            if let Some(v) = html_body {
-                raw.insert("htmlBody".to_string(), serde_json::json!(v));
-            }
-
             let spinner = io.progress("Updating vacation settings…");
             let action = SetVacationResponse {
                 is_enabled: Some(is_enabled),
-                raw_args: serde_json::Value::Object(raw),
+                from_date: FieldChange::from_opt(from),
+                to_date: FieldChange::from_opt(to),
+                subject: FieldChange::from_opt(subject),
+                text_body: FieldChange::from_opt(text_body),
+                html_body: FieldChange::from_opt(html_body),
             };
             let result = action.run(ctx);
             Io::finish_progress(spinner);

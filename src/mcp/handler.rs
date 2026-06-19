@@ -183,7 +183,11 @@ fn dispatch_tool(
         "set_vacation_response" => {
             let action = vacation::SetVacationResponse {
                 is_enabled: json::bool_at(args, "/isEnabled"),
-                raw_args: args.clone(),
+                from_date: vacation::FieldChange::from_arg(args, "fromDate"),
+                to_date: vacation::FieldChange::from_arg(args, "toDate"),
+                subject: vacation::FieldChange::from_arg(args, "subject"),
+                text_body: vacation::FieldChange::from_arg(args, "textBody"),
+                html_body: vacation::FieldChange::from_arg(args, "htmlBody"),
             };
             action.run(ctx)
         }
