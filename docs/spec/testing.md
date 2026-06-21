@@ -11,26 +11,40 @@ failing test first, run it to confirm failure, then implement.
 | `httpmock`      | Mock HTTP server                 | In-process, no async runtime, fast compile. Standalone server per test with request matching and canned responses. |
 | `assert_json_diff` | JSON comparison in assertions | Structural diffs instead of string comparison — clear failure messages. |
 
-Both are `[dev-dependencies]` only — zero impact on production binary size or compile time.
+Neither reaches the production binary. `assert_json_diff` is a plain dev-dependency;
+`httpmock` is an optional dependency behind the `testutil` feature (off in release), which
+the package enables for its own tests via a self dev-dependency. That indirection is what
+lets the `fm` binary's tests — a separate crate from the `fastermail` library after the
+lib split — reach the library's `testutil` harness; a plain `#[cfg(test)]` module cannot
+cross the lib/bin crate boundary.
 
 ```toml
+[features]
+testutil = ["dep:httpmock"]
+
+[dependencies]
+httpmock = { version = "0.8", optional = true }
+
 [dev-dependencies]
-httpmock = "0.8"
-assert_json_diff = "2"
+fastermail = { path = ".", features = ["testutil"] }  # enables testutil for `cargo test`
+assert-json-diff = "2"
 ```
 
 ### 2 Mock JMAP Server
 
-Lives in `src/testutil/mod.rs`, compiled only under `#[cfg(test)]`. Provides a
-reusable builder that configures an `httpmock::MockServer` with FastMail-shaped
-endpoints.
+Lives in `src/testutil/mod.rs`, compiled under the `testutil` feature (enabled for all
+test builds via the self dev-dependency above). Provides a reusable builder that
+configures an `httpmock::MockServer` with FastMail-shaped endpoints.
 
 #### 2.1 Design
 
 ```rust
-// src/testutil/mod.rs
+// src/lib.rs
 
-#[cfg(test)]
+#[cfg(feature = "testutil")]
+pub mod testutil;
+
+// src/testutil/mod.rs
 pub mod mock_jmap;
 ```
 

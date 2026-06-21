@@ -9,21 +9,27 @@ fastermail/
 ├── docs/                    # Specs, references, guides (see docs/README.md)
 ├── .claude/skills/          # Coding convention files (ACE-managed symlinks)
 ├── src/
-│   ├── main.rs              # Entry: load .env, init logging, parse CLI, route MCP/CLI
-│   ├── error.rs             # Single error enum for the crate
-│   ├── config.rs            # Token resolution (env var → ~/.config/fastermail/config.toml)
-│   ├── logging.rs           # Leveled stderr logging (FASTERMAIL_LOG)
-│   ├── recorder.rs          # Request/response recording for test data capture
-│   ├── mcp/
+│   ├── lib.rs               # Library crate root (`fastermail`): exports the [lib] core
+│   ├── main.rs              # `fm` binary: load .env, init logging, parse CLI, route MCP/CLI
+│   │                        #   — a thin L3 caller on top of the library
+│   ├── error.rs             # [lib] Single error enum for the crate
+│   ├── json.rs              # [lib] Typed accessors over serde_json::Value (JSON Pointer paths)
+│   ├── logging.rs           # [lib] Leveled stderr logging (FASTERMAIL_LOG) + log_* macros
+│   ├── recorder.rs          # [lib] Request/response recording for test data capture
+│   ├── config.rs            # [bin] Token resolution (env var → ~/.config/fastermail/config.toml)
+│   ├── jmap/                # [lib] L0 transport + L1 typed JMAP accessors
+│   │   ├── mod.rs           # JMAP module root
+│   │   ├── client.rs        # HTTP client, session, call/call_one, blob download
+│   │   ├── email.rs         # L1 Email accessors (get/query/changes/state/blob) + EmailEnumerator
+│   │   └── types.rs         # JMAP request/response/session types, BlobId, back_reference
+│   ├── testutil/            # [lib] MockJmap harness — gated behind the `testutil` feature
+│   │   └── mock_jmap.rs     #   (httpmock-based; enabled for tests via a self dev-dependency)
+│   ├── mcp/                 # [bin] MCP stdio server (L3 presenter for AI clients)
 │   │   ├── mod.rs           # MCP module root
 │   │   ├── types.rs         # JSON-RPC & MCP types (Request, Response, Tool, etc.)
 │   │   ├── server.rs        # stdio read/write loop, dispatch to handlers
 │   │   └── handler.rs       # Route tools/list and tools/call to actions
-│   ├── jmap/
-│   │   ├── mod.rs           # JMAP module root
-│   │   ├── client.rs        # HTTP client, session management, JMAP request builder
-│   │   └── types.rs         # JMAP request/response types, filter builders
-│   ├── cli/
+│   ├── cli/                 # [bin] Terminal front-end (L3 presenter for humans)
 │   │   ├── mod.rs           # clap command tree + MCP/CLI routing
 │   │   ├── io.rs            # Output modes (human/JSON/raw), TTY detection
 │   │   ├── resolve.rs       # Mailbox resolution (role aliases, fuzzy match)
@@ -33,9 +39,7 @@ fastermail/
 │   │   ├── vacation.rs      # Vacation subcommands
 │   │   ├── masked_emails.rs # Masked email subcommands
 │   │   └── contacts.rs      # Contact subcommands
-│   ├── testutil/            # #[cfg(test)] only
-│   │   └── mock_jmap.rs     # MockJmap test harness
-│   └── actions/
+│   └── actions/             # [bin] Unit-of-work structs (Action trait): JMAP calls + projection
 │       ├── mod.rs           # Action trait + registry + Context
 │       ├── email.rs         # Email action structs
 │       ├── mailbox.rs       # Mailbox action structs
@@ -44,6 +48,12 @@ fastermail/
 │       ├── identity.rs      # Identity action structs
 │       └── contact.rs       # Contact action structs (JSContact flattening)
 ```
+
+`[lib]` modules form the `fastermail` library (L0 transport + L1 JMAP accessors); `[bin]`
+modules are the `fm` binary and MCP server — thin L3 callers that depend on the library.
+This split is step 1 of the layering rearchitect; projection currently still lives in
+`actions/` and migrates into the presenters in later steps (see
+`docs/notes/2026-06-21-layering-rearchitect-plan.md`).
 
 Calendars are out of scope — FastMail exposes no `jmap:calendars` capability (CalDAV only).
 
