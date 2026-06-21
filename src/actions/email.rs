@@ -2,7 +2,7 @@ use crate::actions::{
     Action, Context, check_set_errors, find_mailbox_id_by_name, find_mailbox_id_by_role,
 };
 use crate::error::{Error, Result};
-use crate::jmap::email::{EmailEnumerator, EmailId};
+use crate::jmap::email::{EmailEnumerator, EmailId, State};
 use crate::jmap::types::back_reference;
 use crate::json;
 use crate::mcp::types::Tool;
@@ -399,6 +399,26 @@ impl SearchEmails {
         }
 
         Ok(serde_json::Value::Object(filter))
+    }
+}
+
+pub struct ChangesEmails {
+    pub since: String,
+    pub max_changes: Option<u32>,
+}
+
+impl Action for ChangesEmails {
+    fn run(&self, ctx: &Context) -> Result<serde_json::Value> {
+        if self.since.is_empty() {
+            return Err(Error::InvalidParams("since state is required".to_string()));
+        }
+
+        let since = State(self.since.clone());
+        let changes = ctx
+            .jmap
+            .email_changes(&ctx.account_id, &since, self.max_changes)?;
+
+        Ok(serde_json::to_value(changes)?)
     }
 }
 

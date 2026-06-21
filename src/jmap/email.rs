@@ -24,6 +24,23 @@ impl std::fmt::Display for EmailId {
     }
 }
 
+/// A JMAP state token — the cursor for incremental sync. Carried between
+/// `Email/changes` calls (`newState` of one becomes `sinceState` of the next).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct State(pub String);
+
+impl State {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for State {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
 /// A window into an `Email/query` result set. JMAP offers two positioning modes:
 /// `Anchor` is skip-proof under concurrent inserts; `Position` is a plain offset.
 pub enum Page {
@@ -51,6 +68,20 @@ pub struct EmailQueryResponse {
     pub position: u64,
     #[allow(dead_code)]
     pub total: Option<u64>,
+}
+
+/// Faithful mirror of an `Email/changes` response — the incremental delta since
+/// a prior state. `has_more_changes` means another call (with `new_state` as the
+/// cursor) is needed to drain the rest.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct EmailChangesResponse {
+    pub old_state: State,
+    pub new_state: State,
+    pub has_more_changes: bool,
+    pub created: Vec<EmailId>,
+    pub updated: Vec<EmailId>,
+    pub destroyed: Vec<EmailId>,
 }
 
 impl JmapClient {
@@ -85,6 +116,28 @@ impl JmapClient {
         }
 
         let data = self.call_one(MAIL_CAPABILITY, "Email/query", args)?;
+        let response = serde_json::from_value(data)?;
+        Ok(response)
+    }
+
+    /// L1 accessor: a single `Email/changes` call for the delta since `since`.
+    /// A `cannotCalculateChanges` JMAP error (state too old) surfaces as `Err`;
+    /// the consumer decides whether to fall back to a full re-enumeration.
+    pub fn email_changes(
+        &self,
+        account_id: &str,
+        since: &State,
+        max_changes: Option<u32>,
+    ) -> Result<EmailChangesResponse> {
+        let mut args = serde_json::json!({
+            "accountId": account_id,
+            "sinceState": since.as_str(),
+        });
+        if let Some(max) = max_changes {
+            args["maxChanges"] = serde_json::json!(max);
+        }
+
+        let data = self.call_one(MAIL_CAPABILITY, "Email/changes", args)?;
         let response = serde_json::from_value(data)?;
         Ok(response)
     }
@@ -288,6 +341,52 @@ mod tests {
         let err = enumerate(&client(&mock), 2).expect_err("midstream error should propagate");
         assert!(
             err.to_string().contains("anchorNotFound"),
+            "error should carry JMAP type: {err}"
+        );
+    }
+
+    #[test]
+    fn email_changes_returns_delta() {
+        let mock = MockJmap::start();
+        mock.handle_method(
+            "Email/changes",
+            json!({
+                "methodResponses": [["Email/changes", {
+                    "oldState": "s1",
+                    "newState": "s2",
+                    "hasMoreChanges": false,
+                    "created": ["e001"],
+                    "updated": ["e002"],
+                    "destroyed": ["e003"]
+                }, "call-0"]]
+            }),
+        );
+
+        let resp = client(&mock)
+            .email_changes(TEST_ACCOUNT_ID, &State("s1".into()), None)
+            .expect("email_changes");
+        assert_eq!(resp.new_state, State("s2".into()));
+        assert!(!resp.has_more_changes);
+        assert_eq!(resp.created, vec![EmailId("e001".into())]);
+        assert_eq!(resp.updated, vec![EmailId("e002".into())]);
+        assert_eq!(resp.destroyed, vec![EmailId("e003".into())]);
+    }
+
+    #[test]
+    fn email_changes_propagates_cannot_calculate() {
+        let mock = MockJmap::start();
+        mock.handle_method(
+            "Email/changes",
+            json!({
+                "methodResponses": [["error", { "type": "cannotCalculateChanges" }, "call-0"]]
+            }),
+        );
+
+        let err = client(&mock)
+            .email_changes(TEST_ACCOUNT_ID, &State("old".into()), None)
+            .expect_err("stale state should error");
+        assert!(
+            err.to_string().contains("cannotCalculateChanges"),
             "error should carry JMAP type: {err}"
         );
     }

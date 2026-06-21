@@ -307,6 +307,22 @@ Options:
       --raw                  Raw JMAP output
 ```
 
+#### `fm emails changes`
+
+```
+fm emails changes [OPTIONS]
+
+Incremental sync cursor: the created/updated/destroyed email ids since a prior
+JMAP state token. Pass the returned newState on the next call. A too-old state
+yields a cannotCalculateChanges error — fall back to a full `--all` enumeration.
+
+Options:
+      --since <STATE>        State token to fetch changes since (required)
+  -n, --limit <N>            Max changes per call
+      --json                 JSON output
+      --raw                  Raw JMAP output
+```
+
 #### `fm emails move`
 
 ```

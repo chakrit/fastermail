@@ -2,8 +2,8 @@ use crate::json;
 use clap::Subcommand;
 
 use crate::actions::email::{
-    BodyFormat, DeleteEmail, Flag, FlagEmail, GetEmailBody, GetEmails, MoveEmail, SearchEmails,
-    SendEmail,
+    BodyFormat, ChangesEmails, DeleteEmail, Flag, FlagEmail, GetEmailBody, GetEmails, MoveEmail,
+    SearchEmails, SendEmail,
 };
 use crate::actions::{Action, Context};
 use crate::cli::io::{Io, OutputMode};
@@ -86,6 +86,17 @@ pub enum EmailCommand {
         /// Body format: text, html, or both
         #[arg(long, default_value = "text")]
         format: String,
+    },
+
+    /// List changes since a JMAP state token (incremental sync cursor)
+    Changes {
+        /// State token to fetch changes since (from a prior `newState`)
+        #[arg(long)]
+        since: String,
+
+        /// Max changes per call
+        #[arg(short = 'n', long)]
+        limit: Option<u32>,
     },
 
     /// Move emails between mailboxes
@@ -224,6 +235,17 @@ pub fn run(cmd: EmailCommand, ctx: &Context, io: &Io) -> Result<()> {
             Io::finish_progress(spinner);
             let value = result?;
             format_email_body(io, &value);
+        }
+        EmailCommand::Changes { since, limit } => {
+            let spinner = io.progress("Fetching changes…");
+            let action = ChangesEmails {
+                since,
+                max_changes: limit,
+            };
+            let result = action.run(ctx);
+            Io::finish_progress(spinner);
+            let value = result?;
+            format_changes(io, &value);
         }
         EmailCommand::Move { email_ids, to } => {
             let mailbox_id = resolve_mailbox(&to, ctx, io)?;
@@ -421,6 +443,38 @@ fn format_email_body(io: &Io, value: &serde_json::Value) {
         io.data(html);
     } else {
         io.warn("No body content");
+    }
+}
+
+/// Format an `Email/changes` delta for output.
+fn format_changes(io: &Io, value: &serde_json::Value) {
+    if io.mode() != OutputMode::Human {
+        io.json(value);
+        return;
+    }
+
+    let count = |key: &str| {
+        value
+            .get(key)
+            .and_then(|v| v.as_array())
+            .map(|a| a.len())
+            .unwrap_or(0)
+    };
+    let new_state = json::str_at(value, "/newState").unwrap_or("");
+    let more = value
+        .get("hasMoreChanges")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    io.done(&format!(
+        "{} created, {} updated, {} destroyed",
+        count("created"),
+        count("updated"),
+        count("destroyed")
+    ));
+    io.data(&format!("newState: {new_state}"));
+    if more {
+        io.warn("hasMoreChanges: call again with newState to drain the rest");
     }
 }
 
