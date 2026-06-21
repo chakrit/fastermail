@@ -61,13 +61,8 @@ pub enum Page {
 #[serde(default, rename_all = "camelCase")]
 pub struct EmailQueryResponse {
     pub ids: Vec<EmailId>,
-    // L1 mirrors the full JMAP response; these are consumed by later slices
-    // (incremental sync) and the future lib API, not by the current bin callers.
-    #[allow(dead_code)]
     pub query_state: String,
-    #[allow(dead_code)]
     pub position: u64,
-    #[allow(dead_code)]
     pub total: Option<u64>,
 }
 
