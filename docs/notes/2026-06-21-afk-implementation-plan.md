@@ -33,18 +33,35 @@ layer). Do NOT auto-rewrite committed code for the naming-alignment open questio
   substrings containing `:`; paginated-window mocks key on the colon-free quoted
   anchor value. See `MockJmap::handle_method_matching` doc.
 
+- **Slice 2 DONE** — Incremental `Email/changes`. `JmapClient::email_changes` +
+  `State` newtype + `EmailChangesResponse` (L1); caller `fm emails changes
+  --since <state> [-n]`. Draining `hasMoreChanges` and the stale-state →
+  re-enumerate fallback stay consumer policy. MCP not exposed. Commit `85e85f9`.
+- **Slice 3 DONE** — Raw `.eml` blob download. `BlobId` (in `jmap::types`),
+  `JmapClient::download_blob` (session `downloadUrl` template, 100MB cap) +
+  `email_blob_id`; caller `fm emails export <id> [--to <path>]` (file or stdout,
+  attachments inline). CLI-only (binary ≠ JSON Action path). Commit `658f5e5`.
+
+**All 4 missing backup primitives from the feature request are now shipped**
+(pagination, incremental, blob/raw-MIME). The backup capability exists today at
+the CLI: `fm emails list -m <mb> --all --json` → ids, `fm emails export <id>
+--to …`, `fm emails changes --since <state>`.
+
 ## Roadmap remaining (one at a time)
 - **Generalize → `Queryable` + generic `enumerate<R>`** — DEFERRED until a 2nd
   consumer (Mailbox) actually needs paging; premature now (33 mailboxes fit one
   page). Per decision-doc "genericization timing."
-- **Incremental — `Email/changes` + state** — NEXT. Dep-free L1 accessor
-  (`oldState`/`newState`/`hasMoreChanges`/`created`/`updated`/`destroyed`) +
-  optional changes iterator; caller = a new `fm emails changes --since <state>`
-  (CLI names are build-time defaults per the doc).
-- **Blob download → raw `.eml`** — `Email/get` raw-MIME `blobId` → download via
-  session `downloadUrl`. L1 raw bytes need no new dep; `mail-parser` (L2 parsed
-  view) is a separate optional layer fm stops at.
-- **`lib` target / public API** — formalize once 1–2 more primitives exist.
+- **L2 `mail-parser` (parsed body + attachment list)** — NOT NEEDED for backup;
+  raw `.eml` is lossless with attachments inline, and extraction is the
+  consumer's L3 (they can parse the `.eml`). Build only if a consumer asks fm to
+  parse. Adds the `mail-parser` build-time dep.
+- **`lib` target / public API — NEEDS CHAKRIT.** The "Both" packaging (lib + thin
+  bin/MCP). Held back by AFK because the public surface is an *outward-facing*
+  design decision the `notes/src/mail` consumer will depend on: which layers to
+  export (L1 accessors + sugar + types vs also the JSON-shaped `actions`?),
+  pub-vs-pub(crate) boundaries, and the crate restructure (move modules under
+  `lib.rs`; `#[macro_use] logging` and `#[cfg(test)] testutil` need re-homing).
+  Decide the surface, then it's mostly mechanical. See `.afk.log`.
 
 ### Slice 1 (first) — Email anchor pagination (concrete, no generic traits)
 - `EmailId` newtype.
