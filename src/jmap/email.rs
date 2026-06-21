@@ -85,6 +85,30 @@ pub struct EmailChangesResponse {
     pub destroyed: Vec<EmailId>,
 }
 
+/// Faithful mirror of a JMAP `Email` object: a zero-loss read shape. The newtype ids are
+/// typed; every other property JMAP returns — addresses, `keywords`, `mailboxIds`,
+/// headers, `bodyStructure`/`bodyValues`, and any field FastMail adds later — is preserved
+/// verbatim in `rest`. JMAP names 1:1. Richer typed fields can be promoted out of `rest`
+/// later without losing data; presenters (CLI/MCP) decide what to project.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Email {
+    pub id: EmailId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blob_id: Option<BlobId>,
+    #[serde(flatten)]
+    pub rest: serde_json::Map<String, serde_json::Value>,
+}
+
+/// Faithful mirror of an `Email/get` response.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct EmailGetResponse {
+    pub list: Vec<Email>,
+    pub not_found: Vec<EmailId>,
+    pub state: State,
+}
+
 impl JmapClient {
     /// L1 accessor: a single `Email/query` call for one window of results.
     pub fn email_query(
@@ -143,28 +167,46 @@ impl JmapClient {
         Ok(response)
     }
 
+    /// L1 accessor: a faithful `Email/get` for a set of ids — no projection. Every
+    /// property JMAP returns is preserved (typed ids plus [`Email::rest`]). `properties`
+    /// selects which JMAP properties to fetch; `None` returns JMAP's default set.
+    pub fn email_get(
+        &self,
+        account_id: &str,
+        ids: &[EmailId],
+        properties: Option<&[&str]>,
+    ) -> Result<EmailGetResponse> {
+        let id_strs: Vec<&str> = ids.iter().map(EmailId::as_str).collect();
+        let mut args = serde_json::json!({
+            "accountId": account_id,
+            "ids": id_strs,
+        });
+        if let Some(props) = properties {
+            args["properties"] = serde_json::json!(props);
+        }
+
+        let data = self.call_one(MAIL_CAPABILITY, "Email/get", args)?;
+        let response = serde_json::from_value(data)?;
+        Ok(response)
+    }
+
     /// L1 accessor: the `blobId` of an email's raw RFC822 content, for download
     /// via [`JmapClient::download_blob`]. The raw blob carries attachments inline.
     pub fn email_blob_id(&self, account_id: &str, email_id: &EmailId) -> Result<BlobId> {
-        let args = serde_json::json!({
-            "accountId": account_id,
-            "ids": [email_id.as_str()],
-            "properties": ["blobId"]
-        });
-
-        let data = self.call_one(MAIL_CAPABILITY, "Email/get", args)?;
-        let blob_id = data
-            .get("list")
-            .and_then(|l| l.as_array())
-            .and_then(|list| list.first())
-            .and_then(|email| email.get("blobId"))
-            .and_then(|b| b.as_str())
+        let response = self.email_get(
+            account_id,
+            std::slice::from_ref(email_id),
+            Some(&["blobId"]),
+        )?;
+        response
+            .list
+            .into_iter()
+            .next()
+            .and_then(|email| email.blob_id)
             .ok_or_else(|| Error::Jmap {
                 method: "Email/get".to_string(),
                 message: format!("no blobId for email {email_id}"),
-            })?;
-
-        Ok(BlobId(blob_id.to_string()))
+            })
     }
 
     /// L1 accessor: the current account-wide `Email` state token, for bootstrapping
@@ -510,5 +552,62 @@ mod tests {
             err.to_string().contains("state token"),
             "error should mention the state token: {err}"
         );
+    }
+
+    #[test]
+    fn email_get_returns_faithful_email_with_flattened_extras() {
+        let mock = MockJmap::start();
+        mock.handle_method(
+            "Email/get",
+            json!({
+                "methodResponses": [["Email/get", {
+                    "state": "s1",
+                    "list": [{
+                        "id": "e001",
+                        "blobId": "b1",
+                        "subject": "Hi",
+                        "keywords": { "$seen": true },
+                        "mailboxIds": { "mb1": true }
+                    }],
+                    "notFound": []
+                }, "call-0"]]
+            }),
+        );
+
+        let resp = client(&mock)
+            .email_get(TEST_ACCOUNT_ID, &[EmailId("e001".into())], None)
+            .expect("email_get");
+
+        assert_eq!(resp.list.len(), 1);
+        let email = &resp.list[0];
+        assert_eq!(email.id, EmailId("e001".into()));
+        assert_eq!(email.blob_id, Some(BlobId("b1".into())));
+        // Non-typed fields survive verbatim in `rest` — nothing is dropped.
+        assert_eq!(email.rest.get("subject"), Some(&json!("Hi")));
+        assert_eq!(email.rest.get("keywords"), Some(&json!({ "$seen": true })));
+        assert_eq!(email.rest.get("mailboxIds"), Some(&json!({ "mb1": true })));
+        // Typed ids are consumed by their fields, not duplicated into `rest`.
+        assert!(!email.rest.contains_key("id"));
+        assert!(!email.rest.contains_key("blobId"));
+        assert_eq!(resp.state, State("s1".into()));
+    }
+
+    #[test]
+    fn email_get_reports_not_found_ids() {
+        let mock = MockJmap::start();
+        mock.handle_method(
+            "Email/get",
+            json!({
+                "methodResponses": [["Email/get", {
+                    "state": "s1", "list": [], "notFound": ["missing"]
+                }, "call-0"]]
+            }),
+        );
+
+        let resp = client(&mock)
+            .email_get(TEST_ACCOUNT_ID, &[EmailId("missing".into())], None)
+            .expect("email_get");
+        assert!(resp.list.is_empty());
+        assert_eq!(resp.not_found, vec![EmailId("missing".into())]);
     }
 }
