@@ -1,8 +1,12 @@
 # Layering rearchitect — audit + plan (2026-06-21)
 
-**Status: PROPOSED — three locks pending chakrit before any code.**
-To resume: `/ace` → read this note → confirm the three locks (below) → start at
-step 1 of the path. chakrit asked to work the *entire path* in a new session.
+**Status: IN PROGRESS (AFK run 2026-06-21).** The three locks were ADOPTED to their
+recommendations under chakrit's AFK delegation ("make more decisions autonomously,
+stop only on ones that really require me") — see the locks section below and `.afk.log`
+for the morning veto window. Shipped so far: step 1 (lib/bin split, `f049938`) and the
+`email_state` bootstrap primitive (`af96f9d`, folded out of step 2 as a standalone). Next:
+step 2 Email pattern slice (faithful typed reads + typed mutations + projection→L3),
+behavior-preserving, green per sub-slice.
 
 Companions: design rulings in
 `../decisions/2026-06-21-jmap-library-and-backup-primitives.md`; the
@@ -92,16 +96,20 @@ Per-resource notes:
   + prompts.
 - `lib.rs` exports L0/L1/sugar/types; `fm` bin + MCP become thin L3 callers.
 
-## Three locks (decide before code; my recommendations)
+## Three locks — ADOPTED (AFK, 2026-06-21; chakrit may veto in the morning)
 
-1. **Read shape** — typed struct + `#[serde(flatten)] rest: Map` (**REC**: types
-   where they help, zero loss by default) vs raw `Value` passthrough (max
-   transparency, less ergonomic).
-2. **Actions → typed lib operations** returning `impl Serialize`/concrete types;
-   CLI + MCP render. (Core move — confirm.) chakrit already chose **typed L1
-   mutations up front**, which is the write half of this.
-3. **Migration style** — strangler: resource-by-resource, green commit each, app
-   works throughout (**REC**) vs big-bang.
+1. **Read shape** → **typed struct + `#[serde(flatten)] rest: Map`** (the REC: types
+   where they help, zero loss by default). Rejected raw `Value` passthrough.
+2. **Actions → typed lib operations** returning concrete types; CLI + MCP render.
+   chakrit already chose typed L1 mutations up front (the write half); adopted the read
+   half to match.
+3. **Migration style** → **strangler**: resource-by-resource, green commit each, app
+   works throughout (the REC). Already in force (steps 1 + email_state landed green).
+
+Rationale for adopting autonomously: each lock had a standing recommendation, lock 2 was
+already chakrit's call, and the AFK brief explicitly delegated decisions. The blast radius
+is deliberately capped at one resource (Email) until chakrit blesses the pattern — nothing
+is pushed or published, so any lock is cheap to reverse.
 
 ## Path (strangler; green at every step)
 
