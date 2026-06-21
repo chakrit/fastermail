@@ -66,6 +66,17 @@ impl MockJmap {
         });
     }
 
+    /// Serve `body` as raw bytes for any blob download (GET under `/jmap/download/`).
+    pub fn handle_download(&self, body: &[u8]) {
+        let body = body.to_vec();
+        self.server.mock(|when, then| {
+            when.method(GET).path_includes("/jmap/download/");
+            then.status(200)
+                .header("content-type", "application/octet-stream")
+                .body(body);
+        });
+    }
+
     pub fn base_url(&self) -> String {
         self.server.base_url()
     }
@@ -92,7 +103,10 @@ impl MockJmap {
                 }
             },
             "apiUrl": format!("{}/jmap/api/", server.base_url()),
-            "downloadUrl": format!("{}/jmap/download/", server.base_url()),
+            "downloadUrl": format!(
+                "{}/jmap/download/{{accountId}}/{{blobId}}/{{name}}?type={{type}}",
+                server.base_url()
+            ),
             "uploadUrl": format!("{}/jmap/upload/", server.base_url()),
             "capabilities": {
                 "urn:ietf:params:jmap:core": {

@@ -9,6 +9,7 @@ use crate::actions::{Action, Context};
 use crate::cli::io::{Io, OutputMode};
 use crate::cli::resolve::resolve_mailbox;
 use crate::error::Result;
+use crate::jmap::email::EmailId;
 
 #[derive(Subcommand)]
 pub enum EmailCommand {
@@ -97,6 +98,16 @@ pub enum EmailCommand {
         /// Max changes per call
         #[arg(short = 'n', long)]
         limit: Option<u32>,
+    },
+
+    /// Download a message's raw RFC822 (.eml) bytes, attachments inline
+    Export {
+        /// Email ID
+        email_id: String,
+
+        /// Write to this file (default: stdout)
+        #[arg(long)]
+        to: Option<String>,
     },
 
     /// Move emails between mailboxes
@@ -247,6 +258,13 @@ pub fn run(cmd: EmailCommand, ctx: &Context, io: &Io) -> Result<()> {
             let value = result?;
             format_changes(io, &value);
         }
+        EmailCommand::Export { email_id, to } => {
+            let spinner = io.progress("Downloading message…");
+            let result = export_eml(ctx, &email_id);
+            Io::finish_progress(spinner);
+            let bytes = result?;
+            write_bytes(io, to.as_deref(), &bytes)?;
+        }
         EmailCommand::Move { email_ids, to } => {
             let mailbox_id = resolve_mailbox(&to, ctx, io)?;
             let count = email_ids.len();
@@ -340,6 +358,29 @@ pub fn run(cmd: EmailCommand, ctx: &Context, io: &Io) -> Result<()> {
             } else {
                 io.json(&value);
             }
+        }
+    }
+    Ok(())
+}
+
+/// Fetch a message's raw RFC822 bytes: resolve its blobId, then download it.
+fn export_eml(ctx: &Context, email_id: &str) -> Result<Vec<u8>> {
+    let id = EmailId(email_id.to_string());
+    let blob_id = ctx.jmap.email_blob_id(&ctx.account_id, &id)?;
+    ctx.jmap
+        .download_blob(&ctx.account_id, &blob_id, "message.eml", "message/rfc822")
+}
+
+/// Write raw bytes to a file, or to stdout when no path is given.
+fn write_bytes(io: &Io, to: Option<&str>, bytes: &[u8]) -> Result<()> {
+    match to {
+        Some(path) => {
+            std::fs::write(path, bytes)?;
+            io.done(&format!("Wrote {} bytes to {path}", bytes.len()));
+        }
+        None => {
+            use std::io::Write;
+            std::io::stdout().write_all(bytes)?;
         }
     }
     Ok(())

@@ -9,6 +9,18 @@ pub struct JmapRequest {
 
 pub type MethodCall = (String, serde_json::Value, String);
 
+/// A JMAP blob id — a handle to downloadable binary content (a raw RFC822
+/// message, an attachment). Lives here, not in `email`, because `download_blob`
+/// is resource-agnostic.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BlobId(pub String);
+
+impl BlobId {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 #[derive(Debug, Deserialize, Default)]
 #[serde(default)]
 pub struct JmapResponse {

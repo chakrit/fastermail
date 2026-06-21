@@ -2,8 +2,9 @@ use std::collections::{HashSet, VecDeque};
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::jmap::client::JmapClient;
+use crate::jmap::types::BlobId;
 
 const MAIL_CAPABILITY: &str = "urn:ietf:params:jmap:mail";
 
@@ -140,6 +141,30 @@ impl JmapClient {
         let data = self.call_one(MAIL_CAPABILITY, "Email/changes", args)?;
         let response = serde_json::from_value(data)?;
         Ok(response)
+    }
+
+    /// L1 accessor: the `blobId` of an email's raw RFC822 content, for download
+    /// via [`JmapClient::download_blob`]. The raw blob carries attachments inline.
+    pub fn email_blob_id(&self, account_id: &str, email_id: &EmailId) -> Result<BlobId> {
+        let args = serde_json::json!({
+            "accountId": account_id,
+            "ids": [email_id.as_str()],
+            "properties": ["blobId"]
+        });
+
+        let data = self.call_one(MAIL_CAPABILITY, "Email/get", args)?;
+        let blob_id = data
+            .get("list")
+            .and_then(|l| l.as_array())
+            .and_then(|list| list.first())
+            .and_then(|email| email.get("blobId"))
+            .and_then(|b| b.as_str())
+            .ok_or_else(|| Error::Jmap {
+                method: "Email/get".to_string(),
+                message: format!("no blobId for email {email_id}"),
+            })?;
+
+        Ok(BlobId(blob_id.to_string()))
     }
 }
 
@@ -388,6 +413,43 @@ mod tests {
         assert!(
             err.to_string().contains("cannotCalculateChanges"),
             "error should carry JMAP type: {err}"
+        );
+    }
+
+    #[test]
+    fn email_blob_id_reads_blob_id() {
+        let mock = MockJmap::start();
+        mock.handle_method(
+            "Email/get",
+            json!({
+                "methodResponses": [["Email/get", {
+                    "list": [{ "id": "e001", "blobId": "blob-xyz" }]
+                }, "call-0"]]
+            }),
+        );
+
+        let blob = client(&mock)
+            .email_blob_id(TEST_ACCOUNT_ID, &EmailId("e001".into()))
+            .expect("blobId");
+        assert_eq!(blob, BlobId("blob-xyz".into()));
+    }
+
+    #[test]
+    fn email_blob_id_errors_when_missing() {
+        let mock = MockJmap::start();
+        mock.handle_method(
+            "Email/get",
+            json!({
+                "methodResponses": [["Email/get", { "list": [] }, "call-0"]]
+            }),
+        );
+
+        let err = client(&mock)
+            .email_blob_id(TEST_ACCOUNT_ID, &EmailId("nope".into()))
+            .expect_err("missing email should error");
+        assert!(
+            err.to_string().contains("blobId"),
+            "error should mention blobId: {err}"
         );
     }
 }

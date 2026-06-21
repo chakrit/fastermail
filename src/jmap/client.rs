@@ -1,10 +1,15 @@
 use crate::error::{Error, Result};
-use crate::jmap::types::{JmapRequest, JmapResponse, MethodCall, Session};
+use crate::jmap::types::{BlobId, JmapRequest, JmapResponse, MethodCall, Session};
+
+/// Cap on a single blob download. Larger than FastMail's 50MB upload limit, so a
+/// fully-attached inbound message still fits.
+const MAX_BLOB_SIZE: u64 = 100 * 1024 * 1024;
 
 #[derive(Debug)]
 pub struct JmapClient {
     api_url: String,
     token: String,
+    download_url: String,
 }
 
 impl JmapClient {
@@ -33,6 +38,7 @@ impl JmapClient {
         let client = Self {
             api_url,
             token: token.to_string(),
+            download_url: session.download_url.clone(),
         };
 
         Ok((client, session))
@@ -41,7 +47,11 @@ impl JmapClient {
     /// Create a client with a known API URL (for testing).
     #[cfg(test)]
     pub fn new(api_url: String, token: String) -> Self {
-        Self { api_url, token }
+        Self {
+            api_url,
+            token,
+            download_url: String::new(),
+        }
     }
 
     /// Execute a JMAP request with the given capabilities and method calls.
@@ -110,6 +120,38 @@ impl JmapClient {
         }
 
         Ok(resp_data)
+    }
+
+    /// Download a blob's raw bytes via the session `downloadUrl` template.
+    /// `name` and `content_type` fill the template's `{name}`/`{type}` vars
+    /// (presentation hints); `name` must be URL-safe.
+    pub fn download_blob(
+        &self,
+        account_id: &str,
+        blob_id: &BlobId,
+        name: &str,
+        content_type: &str,
+    ) -> Result<Vec<u8>> {
+        let url = self
+            .download_url
+            .replace("{accountId}", account_id)
+            .replace("{blobId}", blob_id.as_str())
+            .replace("{name}", name)
+            .replace("{type}", content_type);
+
+        log_debug!("jmap", "download blob {}", blob_id.as_str());
+
+        let mut resp = ureq::get(&url)
+            .header("Authorization", &format!("Bearer {}", self.token))
+            .call()?;
+
+        let bytes = resp
+            .body_mut()
+            .with_config()
+            .limit(MAX_BLOB_SIZE)
+            .read_to_vec()?;
+
+        Ok(bytes)
     }
 }
 
@@ -229,5 +271,26 @@ mod tests {
             msg.contains("notFound"),
             "error should contain JMAP error type: {msg}"
         );
+    }
+
+    #[test]
+    fn download_blob_fetches_raw_bytes() {
+        let mock = MockJmap::start();
+        let raw = b"From: a@b.com\r\nSubject: Hi\r\n\r\nbody";
+        mock.handle_download(raw);
+
+        let (client, _) = JmapClient::connect_to(&mock.session_url(), "fake-token")
+            .expect("session should succeed");
+
+        let bytes = client
+            .download_blob(
+                TEST_ACCOUNT_ID,
+                &BlobId("blob-1".to_string()),
+                "message.eml",
+                "message/rfc822",
+            )
+            .expect("download should succeed");
+
+        assert_eq!(bytes, raw);
     }
 }

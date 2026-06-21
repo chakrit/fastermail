@@ -323,6 +323,18 @@ Options:
       --raw                  Raw JMAP output
 ```
 
+#### `fm emails export <EMAIL_ID>`
+
+```
+fm emails export <EMAIL_ID> [OPTIONS]
+
+Download the message's raw RFC822 (.eml) bytes — lossless, byte-exact, with
+attachments inline. The building block for backup.
+
+Options:
+      --to <PATH>            Write to this file (default: raw bytes to stdout)
+```
+
 #### `fm emails move`
 
 ```
