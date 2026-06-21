@@ -1,5 +1,7 @@
 use std::io::{self, BufRead, Write};
 
+use fastermail::{log_debug, log_info, log_trace, log_warn};
+
 use crate::actions::Context;
 use crate::mcp::handler;
 use crate::mcp::types::{

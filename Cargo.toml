@@ -4,13 +4,23 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT"
 
+[lib]
+name = "fastermail"
+path = "src/lib.rs"
+
 [[bin]]
 name = "fm"
 path = "src/main.rs"
 
+[features]
+# Exposes `fastermail::testutil` (the httpmock harness). Enabled for this package's own
+# tests via the self dev-dependency below; never compiled into a release build.
+testutil = ["dep:httpmock"]
+
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 console = "0.16"
+httpmock = { version = "0.8", optional = true }
 indicatif = { version = "0.18", default-features = false, features = ["unicode-width"] }
 inquire = { version = "0.9", default-features = false, features = ["console", "one-liners"] }
 serde = { version = "1", features = ["derive"] }
@@ -20,5 +30,7 @@ toml = "1"
 ureq = { version = "3", features = ["json"] }
 
 [dev-dependencies]
-httpmock = "0.8"
+# Self dev-dependency: enables `testutil` for `cargo test` (both lib and bin test targets)
+# without pulling httpmock into the release binary.
+fastermail = { path = ".", features = ["testutil"] }
 assert-json-diff = "2"

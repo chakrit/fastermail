@@ -44,8 +44,10 @@ impl JmapClient {
         Ok((client, session))
     }
 
-    /// Create a client with a known API URL (for testing).
-    #[cfg(test)]
+    /// Create a client with a known API URL (for testing). Available under the `testutil`
+    /// feature so out-of-crate test code (the `fm` binary's tests, external consumers) can
+    /// point a client at a mock server.
+    #[cfg(any(test, feature = "testutil"))]
     pub fn new(api_url: String, token: String) -> Self {
         Self {
             api_url,

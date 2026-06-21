@@ -1,3 +1,5 @@
+use fastermail::{log_debug, log_trace, log_warn};
+
 use crate::actions::{
     self, Action, Context, contact, email, identity, mailbox, masked_email, vacation,
 };

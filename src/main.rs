@@ -1,22 +1,22 @@
 #![deny(warnings)]
 
-#[macro_use]
-mod logging;
 mod actions;
 mod cli;
 mod config;
-mod error;
-mod jmap;
-mod json;
 mod mcp;
-mod recorder;
+
+// Re-export the library's core modules at the crate root so this binary's submodules keep
+// their `crate::error` / `crate::jmap` / `crate::json` / `crate::recorder` paths after the
+// lib split. `testutil` is test-only and feature-gated in the lib.
 #[cfg(test)]
-mod testutil;
+pub use fastermail::testutil;
+pub use fastermail::{error, jmap, json, logging, recorder};
 
 use std::fs;
 use std::process;
 
 use clap::Parser;
+use fastermail::log_info;
 
 use crate::actions::Context;
 use crate::cli::Cli;

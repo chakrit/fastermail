@@ -386,6 +386,7 @@ dependencies = [
  "assert-json-diff",
  "clap",
  "console",
+ "fastermail",
  "httpmock",
  "indicatif",
  "inquire",
