@@ -3,10 +3,19 @@
 **Status: IN PROGRESS (AFK run 2026-06-21).** The three locks were ADOPTED to their
 recommendations under chakrit's AFK delegation ("make more decisions autonomously,
 stop only on ones that really require me") — see the locks section below and `.afk.log`
-for the morning veto window. Shipped so far: step 1 (lib/bin split, `f049938`) and the
-`email_state` bootstrap primitive (`af96f9d`, folded out of step 2 as a standalone). Next:
-step 2 Email pattern slice (faithful typed reads + typed mutations + projection→L3),
-behavior-preserving, green per sub-slice.
+for the morning veto window. Shipped so far: step 1 (lib/bin split, `f049938`);
+`email_state` bootstrap primitive (`af96f9d`); faithful L1 `email_get` + typed `Email`
+(`a8cb9d5`, the zero-loss read shape — types newtype ids, flattens the rest); spec sync
+(`754a233`) and a dead_code cleanup (`0fc652e`).
+
+**Stopped at two design forks that genuinely need chakrit** (both define the per-resource
+pattern; details + recommendations in `.afk.log`): **(A)** relocating read projection
+(`extract_body_content`, property pinning, MCP token-trim) out of `actions/` into the CLI +
+MCP presenters, and how to model body-value fetching in `email_get`; **(B)** the typed
+mutation API shape (faithful `email_set` vs higher-level ops vs re-export `actions` — the
+decision doc's open fork). Lock 1 settled the read *shape* (`email_get`); these forks are
+NOT settled by the locks. Once blessed: finish step 2 on Email, then propagate to the other
+five resources, then steps 3–4.
 
 Companions: design rulings in
 `../decisions/2026-06-21-jmap-library-and-backup-primitives.md`; the
