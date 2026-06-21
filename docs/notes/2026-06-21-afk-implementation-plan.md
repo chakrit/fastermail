@@ -14,6 +14,38 @@ build + test + clippy, committed at seams. **Do not push.** Honor the two
 philosophies in the decision doc (mirror JMAP names; sugar is a separate optional
 layer). Do NOT auto-rewrite committed code for the naming-alignment open question.
 
+## Progress (AFK run, 2026-06-21)
+- **Slice 1 DONE** — Email anchor pagination. `src/jmap/email.rs`: `EmailId`,
+  `Page`, `EmailQueryResponse`, `JmapClient::email_query` (L1); `EmailEnumerator`
+  iterator (sugar). Landing **A'**: `fm emails list/search --all` (+ `fm ls --all`)
+  enumerate then batch `Email/get`. Default limited path kept its one-shot
+  query→get back-reference (chose NOT to reroute it through `email_query` — that
+  would add a round-trip to the common case for no gain; the enumerator is
+  `email_query`'s caller instead). MCP stays limited (`all: false`). Commit
+  `b37a8d4`.
+- **⚠ VERIFY ON LIVE API**: the enumerator sorts `receivedAt` asc **+ `id`
+  tiebreak**, per the decision doc. RFC 8621 does NOT list `id` as a sortable
+  `Email/query` property — FastMail may reject it. MockJmap can't catch this. If
+  live rejects, drop the `id` tiebreak and lean on the existing id-dedup (small
+  skip risk on identical-`receivedAt` collisions). One-line fix in
+  `EmailEnumerator::new`.
+- **Test caveat captured in code**: httpmock 0.8 `body_includes` silently fails on
+  substrings containing `:`; paginated-window mocks key on the colon-free quoted
+  anchor value. See `MockJmap::handle_method_matching` doc.
+
+## Roadmap remaining (one at a time)
+- **Generalize → `Queryable` + generic `enumerate<R>`** — DEFERRED until a 2nd
+  consumer (Mailbox) actually needs paging; premature now (33 mailboxes fit one
+  page). Per decision-doc "genericization timing."
+- **Incremental — `Email/changes` + state** — NEXT. Dep-free L1 accessor
+  (`oldState`/`newState`/`hasMoreChanges`/`created`/`updated`/`destroyed`) +
+  optional changes iterator; caller = a new `fm emails changes --since <state>`
+  (CLI names are build-time defaults per the doc).
+- **Blob download → raw `.eml`** — `Email/get` raw-MIME `blobId` → download via
+  session `downloadUrl`. L1 raw bytes need no new dep; `mail-parser` (L2 parsed
+  view) is a separate optional layer fm stops at.
+- **`lib` target / public API** — formalize once 1–2 more primitives exist.
+
 ### Slice 1 (first) — Email anchor pagination (concrete, no generic traits)
 - `EmailId` newtype.
 - **Base:** `JmapClient::email_query(filter, sort, page) -> EmailQueryResponse`
