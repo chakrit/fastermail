@@ -1,5 +1,10 @@
 # AFK implementation plan + session resume (2026-06-21)
 
+> **SUPERSEDED FOR FORWARD WORK.** Backup primitives slices 1–3 shipped and
+> live-verified (see below / git). The next effort is a full layering
+> rearchitect — see **`2026-06-21-layering-rearchitect-plan.md`**. This file is
+> now the historical build log for the backup primitives.
+
 ## Resume state
 - **16 commits** this session on `main` (`2fbd0b1..HEAD`), all green
   (build / test / clippy, `#![deny(warnings)]`), tree clean. **UNPUSHED** — push
@@ -70,22 +75,11 @@ the CLI: `fm emails list -m <mb> --all --json` → ids, `fm emails export <id>
   raw `.eml` is lossless with attachments inline, and extraction is the
   consumer's L3 (they can parse the `.eml`). Build only if a consumer asks fm to
   parse. Adds the `mail-parser` build-time dep.
-- **`lib` target / public API — NEEDS CHAKRIT.** The "Both" packaging (lib + thin
-  bin/MCP). Outward-facing API the `notes/src/mail` consumer will depend on.
-  **chakrit clarified (2026-06-21): the lib must expose MUTATIONS too**, not just
-  the read primitives — consistent with the decision doc's "lib holds the real
-  API." Today reads are typed L1 accessors on `JmapClient`; mutations live only in
-  `actions/` as JSON-returning `Action` structs (MCP-shaped). Open design fork for
-  how mutations enter the lib:
-  - (A) Typed L1 mutation accessors on `JmapClient` (`email_set`/`mailbox_set`/…),
-    `actions` become thin callers. Faithful + typed, but a large build across all
-    resources.
-  - (B) Lib re-exports the existing `actions` structs as-is (JSON-returning).
-    Cheap, but the public mutation API is `serde_json::Value`, not typed.
-  - (C) Hybrid: ship lib now exposing `JmapClient` (L1 reads + raw `call`) + the
-    `actions` module; add typed L1 mutations incrementally.
-  Plus the crate restructure (modules under `lib.rs`; `#[macro_use] logging` and
-  `#[cfg(test)] testutil` re-homing). Surface decided → mostly mechanical.
+- **`lib` target / public API + typed mutations + field expansion** — all folded
+  into the layering rearchitect. The lib must expose mutations too (chakrit), reads
+  must stop dropping fields (chakrit), and the open naming question collapses into
+  it. See **`2026-06-21-layering-rearchitect-plan.md`** for the audit, target, the
+  three pending locks, and the strangler path.
 
 ### Slice 1 (first) — Email anchor pagination (concrete, no generic traits)
 - `EmailId` newtype.
