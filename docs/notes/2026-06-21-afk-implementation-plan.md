@@ -23,12 +23,27 @@ layer). Do NOT auto-rewrite committed code for the naming-alignment open questio
   would add a round-trip to the common case for no gain; the enumerator is
   `email_query`'s caller instead). MCP stays limited (`all: false`). Commit
   `b37a8d4`.
-- **⚠ VERIFY ON LIVE API**: the enumerator sorts `receivedAt` asc **+ `id`
-  tiebreak**, per the decision doc. RFC 8621 does NOT list `id` as a sortable
-  `Email/query` property — FastMail may reject it. MockJmap can't catch this. If
-  live rejects, drop the `id` tiebreak and lean on the existing id-dedup (small
-  skip risk on identical-`receivedAt` collisions). One-line fix in
-  `EmailEnumerator::new`.
+- **✅ LIVE-VERIFIED (2026-06-21, read-only against chakritw@fastmail.fm)**:
+  - `id` sort tiebreak is **accepted** by FastMail — `--all` works, no
+    `unsupportedSort`. The decision-doc ruling stands; no change needed.
+  - Multi-window anchor stitching is **correct**: `--all` on Berlitz (15 msgs)
+    with a temporary `ALL_PAGE_SIZE=2` (8 windows) returned exactly 15 ids, zero
+    dupes, ascending `receivedAt` — matched the `-n 100` cross-count. Page size
+    reverted to 500.
+  - `export` (raw `.eml`) downloaded a 1.28MB byte-exact RFC822 message
+    (`Return-Path:`/`Received:` headers, attachments inline).
+  - `Email/changes` reaches the API and maps errors: a stale `--since 0` returned
+    `cannotCalculateChanges` — confirming the documented re-enumerate fallback is
+    a real FastMail behavior, not hypothetical.
+- **⚠ GAP found during live test — incremental sync can't BOOTSTRAP.** Nothing
+  returns the initial Email object `state` token (`Email/get` response top-level
+  `state`). `email_query` gives `queryState` (for `Email/queryChanges`, not
+  `Email/changes`); `email_changes` *needs* a `sinceState` to start;
+  `email_blob_id` discards the response `state`. So a consumer can't capture the
+  cursor for its first incremental run. Fix: add L1 `JmapClient::email_state(account)
+  -> State` (`Email/get` `ids:[]`, read response `state`) + a CLI surface
+  (e.g. `fm emails changes` with no `--since` prints the current state). Small,
+  dep-free, completes the backup primitive set. NOT yet built — proposed.
 - **Test caveat captured in code**: httpmock 0.8 `body_includes` silently fails on
   substrings containing `:`; paginated-window mocks key on the colon-free quoted
   anchor value. See `MockJmap::handle_method_matching` doc.
@@ -56,12 +71,21 @@ the CLI: `fm emails list -m <mb> --all --json` → ids, `fm emails export <id>
   consumer's L3 (they can parse the `.eml`). Build only if a consumer asks fm to
   parse. Adds the `mail-parser` build-time dep.
 - **`lib` target / public API — NEEDS CHAKRIT.** The "Both" packaging (lib + thin
-  bin/MCP). Held back by AFK because the public surface is an *outward-facing*
-  design decision the `notes/src/mail` consumer will depend on: which layers to
-  export (L1 accessors + sugar + types vs also the JSON-shaped `actions`?),
-  pub-vs-pub(crate) boundaries, and the crate restructure (move modules under
-  `lib.rs`; `#[macro_use] logging` and `#[cfg(test)] testutil` need re-homing).
-  Decide the surface, then it's mostly mechanical. See `.afk.log`.
+  bin/MCP). Outward-facing API the `notes/src/mail` consumer will depend on.
+  **chakrit clarified (2026-06-21): the lib must expose MUTATIONS too**, not just
+  the read primitives — consistent with the decision doc's "lib holds the real
+  API." Today reads are typed L1 accessors on `JmapClient`; mutations live only in
+  `actions/` as JSON-returning `Action` structs (MCP-shaped). Open design fork for
+  how mutations enter the lib:
+  - (A) Typed L1 mutation accessors on `JmapClient` (`email_set`/`mailbox_set`/…),
+    `actions` become thin callers. Faithful + typed, but a large build across all
+    resources.
+  - (B) Lib re-exports the existing `actions` structs as-is (JSON-returning).
+    Cheap, but the public mutation API is `serde_json::Value`, not typed.
+  - (C) Hybrid: ship lib now exposing `JmapClient` (L1 reads + raw `call`) + the
+    `actions` module; add typed L1 mutations incrementally.
+  Plus the crate restructure (modules under `lib.rs`; `#[macro_use] logging` and
+  `#[cfg(test)] testutil` re-homing). Surface decided → mostly mechanical.
 
 ### Slice 1 (first) — Email anchor pagination (concrete, no generic traits)
 - `EmailId` newtype.

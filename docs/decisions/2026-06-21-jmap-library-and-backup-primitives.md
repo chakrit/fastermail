@@ -48,6 +48,12 @@ backup itself. Walked 1-by-1 with chakrit.
 **Both** — fastermail becomes `lib` + `bin`. The lib holds the real API; the `fm`
 bin and the MCP handler are thin callers; external consumers depend on the lib.
 
+The lib's "real API" includes **mutations**, not just the read primitives
+(chakrit, 2026-06-21). Reads are typed L1 accessors on `JmapClient` today;
+mutations currently live only in `actions/` as JSON-returning `Action` structs.
+Exposing them as typed L1 (`email_set`/`mailbox_set`/…) vs re-exporting `actions`
+as-is is an open fork — see the plan note's lib roadmap item.
+
 ## Specific rulings (and the rejected alternative)
 
 - **Backup format: raw `.eml`.** Lossless, byte-exact, attachments inline via the
