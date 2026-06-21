@@ -2,6 +2,7 @@ use crate::actions::{
     Action, Context, check_set_errors, find_mailbox_id_by_name, find_mailbox_id_by_role,
 };
 use crate::error::{Error, Result};
+use crate::jmap::email::{EmailEnumerator, EmailId};
 use crate::jmap::types::back_reference;
 use crate::json;
 use crate::mcp::types::Tool;
@@ -50,12 +51,45 @@ fn resolve_body_part(
 /// Default max results when the caller leaves `limit` unset (0).
 const DEFAULT_LIMIT: u32 = 20;
 
+/// Max ids per `Email/get` call; stays under JMAP's `maxObjectsInGet`.
+const GET_BATCH: usize = 500;
+
+/// `Email/query` page size when enumerating an entire filter for `--all`.
+const ALL_PAGE_SIZE: u32 = 500;
+
 /// Build JMAP address objects (`[{ "email": addr }, ...]`) from a list of addresses.
 fn address_objects(addrs: &[String]) -> Vec<serde_json::Value> {
     addrs
         .iter()
         .map(|addr| serde_json::json!({ "email": addr }))
         .collect()
+}
+
+/// Build `Email/get` args with the standard list/search properties, adding body
+/// fields when requested. Callers attach the ids reference (`ids` or `#ids`).
+fn email_get_args(account_id: &str, include_body: bool) -> serde_json::Value {
+    let mut args = serde_json::json!({
+        "accountId": account_id,
+        "properties": ["id", "subject", "from", "to", "receivedAt", "preview"]
+    });
+
+    if include_body {
+        args["fetchTextBodyValues"] = serde_json::json!(true);
+        args["fetchHTMLBodyValues"] = serde_json::json!(true);
+        args["properties"] = serde_json::json!([
+            "id",
+            "subject",
+            "from",
+            "to",
+            "receivedAt",
+            "preview",
+            "textBody",
+            "htmlBody",
+            "bodyValues"
+        ]);
+    }
+
+    args
 }
 
 /// Run an `Email/query` → `Email/get` pipeline for a filter, returning the fetched
@@ -80,27 +114,8 @@ fn query_and_fetch(
         "limit": limit
     });
 
-    let mut get_args = serde_json::json!({
-        "accountId": ctx.account_id,
-        "#ids": back_reference("call-0", "Email/query", "/ids"),
-        "properties": ["id", "subject", "from", "to", "receivedAt", "preview"]
-    });
-
-    if include_body {
-        get_args["fetchTextBodyValues"] = serde_json::json!(true);
-        get_args["fetchHTMLBodyValues"] = serde_json::json!(true);
-        get_args["properties"] = serde_json::json!([
-            "id",
-            "subject",
-            "from",
-            "to",
-            "receivedAt",
-            "preview",
-            "textBody",
-            "htmlBody",
-            "bodyValues"
-        ]);
-    }
+    let mut get_args = email_get_args(&ctx.account_id, include_body);
+    get_args["#ids"] = back_reference("call-0", "Email/query", "/ids");
 
     let method_calls = vec![
         ("Email/query".to_string(), query_args, "call-0".to_string()),
@@ -123,6 +138,48 @@ fn query_and_fetch(
     }
 
     Ok(email_data)
+}
+
+/// `Email/get` a set of ids in batches, resolving body content on each result.
+fn fetch_emails_by_ids(
+    ctx: &Context,
+    ids: &[EmailId],
+    include_body: bool,
+) -> Result<serde_json::Value> {
+    let mut emails = Vec::with_capacity(ids.len());
+
+    for chunk in ids.chunks(GET_BATCH) {
+        let chunk_ids: Vec<&str> = chunk.iter().map(EmailId::as_str).collect();
+        let mut get_args = email_get_args(&ctx.account_id, include_body);
+        get_args["ids"] = serde_json::json!(chunk_ids);
+
+        let data = ctx
+            .jmap
+            .call_one("urn:ietf:params:jmap:mail", "Email/get", get_args)?;
+
+        let Some(list) = data.get("list").and_then(|l| l.as_array()) else {
+            continue;
+        };
+        for email in list {
+            let mut email = email.clone();
+            extract_body_content(&mut email);
+            emails.push(email);
+        }
+    }
+
+    Ok(serde_json::Value::Array(emails))
+}
+
+/// Enumerate every email matching `filter` via anchor paging, then fetch them.
+/// Results are oldest-first — the immutable order anchor paging requires.
+fn fetch_all(
+    ctx: &Context,
+    filter: serde_json::Value,
+    include_body: bool,
+) -> Result<serde_json::Value> {
+    let enumerator = EmailEnumerator::new(&ctx.jmap, ctx.account_id.clone(), filter, ALL_PAGE_SIZE);
+    let ids = enumerator.collect::<Result<Vec<EmailId>>>()?;
+    fetch_emails_by_ids(ctx, &ids, include_body)
 }
 
 pub fn tools() -> Vec<Tool> {
@@ -233,13 +290,18 @@ pub struct GetEmails {
     pub mailbox_name: String,
     pub limit: u32,
     pub include_body: bool,
+    pub all: bool,
 }
 
 impl Action for GetEmails {
     fn run(&self, ctx: &Context) -> Result<serde_json::Value> {
         let mailbox_id = self.resolve_mailbox_id(ctx)?;
         let filter = serde_json::json!({ "inMailbox": mailbox_id });
-        query_and_fetch(ctx, filter, self.limit, self.include_body)
+        if self.all {
+            fetch_all(ctx, filter, self.include_body)
+        } else {
+            query_and_fetch(ctx, filter, self.limit, self.include_body)
+        }
     }
 }
 
@@ -281,12 +343,17 @@ pub struct SearchEmails {
     pub before: String,
     pub limit: u32,
     pub include_body: bool,
+    pub all: bool,
 }
 
 impl Action for SearchEmails {
     fn run(&self, ctx: &Context) -> Result<serde_json::Value> {
         let filter = self.build_filter()?;
-        query_and_fetch(ctx, filter, self.limit, self.include_body)
+        if self.all {
+            fetch_all(ctx, filter, self.include_body)
+        } else {
+            query_and_fetch(ctx, filter, self.limit, self.include_body)
+        }
     }
 }
 
@@ -842,6 +909,7 @@ mod tests {
             mailbox_name: "".to_string(),
             limit: 10,
             include_body: false,
+            all: false,
         };
         let err = action.run(&ctx).expect_err("should fail without mailbox");
         let msg = err.to_string();
@@ -862,6 +930,7 @@ mod tests {
             mailbox_name: "".to_string(),
             limit: 10,
             include_body: false,
+            all: false,
         };
         let result = action.run(&ctx).expect("get_emails should succeed");
         let emails = result.as_array().expect("result should be array");
@@ -879,11 +948,52 @@ mod tests {
             mailbox_name: "".to_string(),
             limit: 0,
             include_body: false,
+            all: false,
         };
         let result = action
             .run(&ctx)
             .expect("get_emails with limit=0 should succeed");
         assert!(result.is_array(), "result should be array");
+    }
+
+    #[test]
+    fn get_emails_all_enumerates_then_fetches() {
+        let mock = MockJmap::start();
+        let ctx = mock_ctx(&mock);
+        // A single short query window ends enumeration; ids are then fetched.
+        mock.handle_method_matching(
+            "Email/query",
+            "\"position\"",
+            json!({
+                "methodResponses": [
+                    ["Email/query", {"ids": ["e001", "e002"], "queryState": "s", "position": 0}, "call-0"]
+                ]
+            }),
+        );
+        mock.handle_method(
+            "Email/get",
+            json!({
+                "methodResponses": [
+                    ["Email/get", {"list": [
+                        {"id": "e001", "subject": "One"},
+                        {"id": "e002", "subject": "Two"}
+                    ]}, "call-0"]
+                ]
+            }),
+        );
+
+        let action = GetEmails {
+            mailbox_id: "mbox-1".into(),
+            mailbox_name: "".into(),
+            limit: 20,
+            include_body: false,
+            all: true,
+        };
+        let result = action.run(&ctx).expect("get_emails --all should succeed");
+        let emails = result.as_array().expect("result should be array");
+        assert_eq!(emails.len(), 2, "both enumerated ids should be fetched");
+        assert_eq!(emails[0]["subject"], "One");
+        assert_eq!(emails[1]["subject"], "Two");
     }
 
     #[test]
@@ -900,6 +1010,7 @@ mod tests {
             before: "".to_string(),
             limit: 10,
             include_body: false,
+            all: false,
         };
         let err = action.run(&ctx).expect_err("should fail with no filters");
         let msg = err.to_string();
@@ -923,6 +1034,7 @@ mod tests {
             before: "".to_string(),
             limit: 10,
             include_body: false,
+            all: false,
         };
         let result = action
             .run(&ctx)
@@ -1296,6 +1408,7 @@ mod tests {
             mailbox_name: "Inbox".into(),
             limit: 10,
             include_body: false,
+            all: false,
         };
         let result = action.run(&ctx).expect("get_emails by name should succeed");
         let emails = result.as_array().expect("result should be array");
@@ -1342,6 +1455,7 @@ mod tests {
             mailbox_name: "".into(),
             limit: 10,
             include_body: false,
+            all: false,
         };
         let result = action.run(&ctx).expect("get_emails should succeed");
         let emails = result.as_array().expect("result should be array");

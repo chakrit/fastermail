@@ -87,6 +87,10 @@ enum Command {
         #[arg(short = 'n', long, default_value_t = 20)]
         limit: u32,
 
+        /// Fetch every match via pagination (ignores --limit; oldest first)
+        #[arg(long)]
+        all: bool,
+
         /// Include body content
         #[arg(long)]
         include_body: bool,
@@ -156,11 +160,13 @@ impl Cli {
             Command::Ls {
                 mailbox,
                 limit,
+                all,
                 include_body,
             } => emails::run(
                 emails::EmailCommand::List {
                     mailbox: mailbox.or_else(|| Some("inbox".to_string())),
                     limit,
+                    all,
                     include_body,
                 },
                 ctx,

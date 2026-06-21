@@ -114,6 +114,7 @@ fn dispatch_tool(
                 mailbox_name: str_param(args, "mailboxName"),
                 limit: u32_param(args, "limit"),
                 include_body: bool_param(args, "includeBody"),
+                all: false,
             };
             action.run(ctx)
         }
@@ -129,6 +130,7 @@ fn dispatch_tool(
                 before: str_param(args, "before"),
                 limit: u32_param(args, "limit"),
                 include_body: bool_param(args, "includeBody"),
+                all: false,
             };
             action.run(ctx)
         }

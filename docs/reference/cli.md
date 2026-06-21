@@ -267,6 +267,7 @@ fm emails list [OPTIONS]
 Options:
   -m, --mailbox <MAILBOX>    Mailbox (ID, role alias, or name)
   -n, --limit <N>            Max results (default 20)
+      --all                  Fetch every match via pagination (ignores --limit; oldest first)
       --include-body         Include body content
       --json                 JSON output
       --raw                  Raw JMAP output
@@ -289,6 +290,7 @@ Options:
       --after <YYYY-MM-DD>   Date lower bound
       --before <YYYY-MM-DD>  Date upper bound
   -n, --limit <N>            Max results (default 20)
+      --all                  Fetch every match via pagination (ignores --limit; oldest first)
       --include-body         Include body content
       --json                 JSON output
       --raw                  Raw JMAP output

@@ -22,6 +22,10 @@ pub enum EmailCommand {
         #[arg(short = 'n', long, default_value_t = 20)]
         limit: u32,
 
+        /// Fetch every match via pagination (ignores --limit; oldest first)
+        #[arg(long)]
+        all: bool,
+
         /// Include body content
         #[arg(long)]
         include_body: bool,
@@ -64,6 +68,10 @@ pub enum EmailCommand {
         /// Max results
         #[arg(short = 'n', long, default_value_t = 20)]
         limit: u32,
+
+        /// Fetch every match via pagination (ignores --limit; oldest first)
+        #[arg(long)]
+        all: bool,
 
         /// Include body content
         #[arg(long)]
@@ -154,6 +162,7 @@ pub fn run(cmd: EmailCommand, ctx: &Context, io: &Io) -> Result<()> {
         EmailCommand::List {
             ref mailbox,
             limit,
+            all,
             include_body,
         } => {
             let input = mailbox.clone().unwrap_or_else(|| "inbox".to_string());
@@ -164,6 +173,7 @@ pub fn run(cmd: EmailCommand, ctx: &Context, io: &Io) -> Result<()> {
                 mailbox_name: String::new(),
                 limit,
                 include_body,
+                all,
             };
             let result = action.run(ctx);
             Io::finish_progress(spinner);
@@ -180,6 +190,7 @@ pub fn run(cmd: EmailCommand, ctx: &Context, io: &Io) -> Result<()> {
             after,
             before,
             limit,
+            all,
             include_body,
         } => {
             let mailbox_id = match mailbox {
@@ -198,6 +209,7 @@ pub fn run(cmd: EmailCommand, ctx: &Context, io: &Io) -> Result<()> {
                 before: before.unwrap_or_default(),
                 limit,
                 include_body,
+                all,
             };
             let result = action.run(ctx);
             Io::finish_progress(spinner);

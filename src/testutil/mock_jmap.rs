@@ -40,6 +40,32 @@ impl MockJmap {
         });
     }
 
+    /// Register a handler that matches only requests whose body contains both
+    /// `method_name` and `body_substr`. Lets successive paginated calls (which
+    /// differ by `position`/`anchor`) return distinct windows.
+    ///
+    /// `body_substr` must not contain a colon: httpmock 0.8 `body_includes`
+    /// silently fails to match substrings with `:`. Match on a colon-free token
+    /// (e.g. the quoted anchor value `"e002"`, not `"anchor":"e002"`).
+    pub fn handle_method_matching(
+        &self,
+        method_name: &str,
+        body_substr: &str,
+        response_body: Value,
+    ) {
+        let method = method_name.to_string();
+        let substr = body_substr.to_string();
+        self.server.mock(|when, then| {
+            when.method(POST)
+                .path("/jmap/api/")
+                .body_includes(&method)
+                .body_includes(&substr);
+            then.status(200)
+                .header("content-type", "application/json")
+                .json_body(response_body);
+        });
+    }
+
     pub fn base_url(&self) -> String {
         self.server.base_url()
     }
