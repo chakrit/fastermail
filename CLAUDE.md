@@ -28,6 +28,22 @@ Calendars are out of scope (FastMail exposes only CalDAV, no JMAP).
 Load-bearing skills: `general-coding` + `rust-coding` (mandatory for any code),
 `markdown-writing` for `docs/`, the `ace-*` family for the workflow.
 
+## Design philosophy
+
+fastermail is a **transparent translation layer** — it adds no email-processing
+value, just sits between the user and Fastmail/JMAP. Two standing principles:
+
+1. **Mirror JMAP / FastMail vocabulary exactly.** Method and field names, `keyword`
+   (not "flag"), `anchor`/`position`/`queryState`, `state`/`created`/`updated`/
+   `destroyed`, `blobId`/`downloadUrl`. No invented noun where JMAP has one — keep
+   terms searchable across JMAP docs.
+2. **Rust-native sugar is a separate, OPTIONAL layer on top of direct JMAP
+   accessors**, never replacing them (iterators, newtypes; sync, `ureq`).
+
+Direction: heading to `lib` + `bin` (the lib holds the API; bin/MCP are thin
+callers). Full rulings + the layered (transport / base / sugar) design:
+`docs/decisions/2026-06-21-jmap-library-and-backup-primitives.md`.
+
 ## Durable artifacts
 
 `docs/` — usage docs (`guides/`, `reference/`; sorted by type) and a design record
