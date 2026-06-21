@@ -166,6 +166,28 @@ impl JmapClient {
 
         Ok(BlobId(blob_id.to_string()))
     }
+
+    /// L1 accessor: the current account-wide `Email` state token, for bootstrapping
+    /// incremental sync. An `Email/get` with an empty `ids` list returns the `Email`
+    /// state in its response; that token seeds the first [`JmapClient::email_changes`]
+    /// call (without it, `--since 0` yields `cannotCalculateChanges`).
+    pub fn email_state(&self, account_id: &str) -> Result<State> {
+        let args = serde_json::json!({
+            "accountId": account_id,
+            "ids": [],
+        });
+
+        let data = self.call_one(MAIL_CAPABILITY, "Email/get", args)?;
+        let state = data
+            .get("state")
+            .and_then(|s| s.as_str())
+            .ok_or_else(|| Error::Jmap {
+                method: "Email/get".to_string(),
+                message: "no state token in Email/get response".to_string(),
+            })?;
+
+        Ok(State(state.to_string()))
+    }
 }
 
 /// Sugar over `email_query`: a sync iterator that walks every id matching a
@@ -450,6 +472,43 @@ mod tests {
         assert!(
             err.to_string().contains("blobId"),
             "error should mention blobId: {err}"
+        );
+    }
+
+    #[test]
+    fn email_state_reads_top_level_state() {
+        let mock = MockJmap::start();
+        mock.handle_method(
+            "Email/get",
+            json!({
+                "methodResponses": [["Email/get", {
+                    "state": "st-42", "list": [], "notFound": []
+                }, "call-0"]]
+            }),
+        );
+
+        let state = client(&mock)
+            .email_state(TEST_ACCOUNT_ID)
+            .expect("email_state");
+        assert_eq!(state, State("st-42".into()));
+    }
+
+    #[test]
+    fn email_state_errors_when_state_missing() {
+        let mock = MockJmap::start();
+        mock.handle_method(
+            "Email/get",
+            json!({
+                "methodResponses": [["Email/get", { "list": [] }, "call-0"]]
+            }),
+        );
+
+        let err = client(&mock)
+            .email_state(TEST_ACCOUNT_ID)
+            .expect_err("missing state should error");
+        assert!(
+            err.to_string().contains("state token"),
+            "error should mention the state token: {err}"
         );
     }
 }

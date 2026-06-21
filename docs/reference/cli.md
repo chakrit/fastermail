@@ -316,8 +316,12 @@ Incremental sync cursor: the created/updated/destroyed email ids since a prior
 JMAP state token. Pass the returned newState on the next call. A too-old state
 yields a cannotCalculateChanges error — fall back to a full `--all` enumeration.
 
+Omit --since to print the current state token instead — the bootstrap cursor a
+first sync captures before any changes exist to ask for.
+
 Options:
-      --since <STATE>        State token to fetch changes since (required)
+      --since <STATE>        State to fetch changes since; omit to print the
+                             current state (bootstrap cursor)
   -n, --limit <N>            Max changes per call
       --json                 JSON output
       --raw                  Raw JMAP output

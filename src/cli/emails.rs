@@ -9,7 +9,7 @@ use crate::actions::{Action, Context};
 use crate::cli::io::{Io, OutputMode};
 use crate::cli::resolve::resolve_mailbox;
 use crate::error::Result;
-use crate::jmap::email::EmailId;
+use crate::jmap::email::{EmailId, State};
 
 #[derive(Subcommand)]
 pub enum EmailCommand {
@@ -89,11 +89,12 @@ pub enum EmailCommand {
         format: String,
     },
 
-    /// List changes since a JMAP state token (incremental sync cursor)
+    /// List changes since a JMAP state token, or print the current state if --since is omitted
     Changes {
-        /// State token to fetch changes since (from a prior `newState`)
+        /// State token to fetch changes since (from a prior `newState`). Omit to print the
+        /// current state token — the bootstrap cursor for a first incremental sync.
         #[arg(long)]
-        since: String,
+        since: Option<String>,
 
         /// Max changes per call
         #[arg(short = 'n', long)]
@@ -247,17 +248,26 @@ pub fn run(cmd: EmailCommand, ctx: &Context, io: &Io) -> Result<()> {
             let value = result?;
             format_email_body(io, &value);
         }
-        EmailCommand::Changes { since, limit } => {
-            let spinner = io.progress("Fetching changes…");
-            let action = ChangesEmails {
-                since,
-                max_changes: limit,
-            };
-            let result = action.run(ctx);
-            Io::finish_progress(spinner);
-            let value = result?;
-            format_changes(io, &value);
-        }
+        EmailCommand::Changes { since, limit } => match since {
+            None => {
+                let spinner = io.progress("Fetching state…");
+                let result = ctx.jmap.email_state(&ctx.account_id);
+                Io::finish_progress(spinner);
+                let state = result?;
+                print_state(io, &state);
+            }
+            Some(since) => {
+                let spinner = io.progress("Fetching changes…");
+                let action = ChangesEmails {
+                    since,
+                    max_changes: limit,
+                };
+                let result = action.run(ctx);
+                Io::finish_progress(spinner);
+                let value = result?;
+                format_changes(io, &value);
+            }
+        },
         EmailCommand::Export { email_id, to } => {
             let spinner = io.progress("Downloading message…");
             let result = export_eml(ctx, &email_id);
@@ -485,6 +495,15 @@ fn format_email_body(io: &Io, value: &serde_json::Value) {
     } else {
         io.warn("No body content");
     }
+}
+
+/// Print the current Email state token — the bootstrap cursor for incremental sync.
+fn print_state(io: &Io, state: &State) {
+    if io.mode() != OutputMode::Human {
+        io.json(&serde_json::json!({ "state": state.as_str() }));
+        return;
+    }
+    io.done(&format!("state: {state}"));
 }
 
 /// Format an `Email/changes` delta for output.
