@@ -110,9 +110,6 @@ if [ ! -f "$STATE_DIR/state.json" ]; then
 fi
 
 # --- iterate mailboxes -----------------------------------------------------
-grand_got=0
-grand_fail=0
-incomplete=0
 mb_index=0
 
 # id<TAB>name per mailbox, optionally filtered by --only (id or exact-ish name).
@@ -132,7 +129,7 @@ jq -r '.[] | [.id, .name] | @tsv' "$STATE_DIR/mailboxes.json" \
     if [ "$REFRESH" -eq 1 ] || [ ! -s "$ids_file" ]; then
       "$FM" emails list -m "$mb_id" --all --json 2>/dev/null \
         | jq -r '.[].id' > "$ids_file" \
-        || { log "FAIL enumerate mailbox $mb_name ($mb_id)"; incomplete=1; continue; }
+        || { log "FAIL enumerate mailbox $mb_name ($mb_id)"; continue; }
     fi
     want="$(wc -l < "$ids_file" | tr -d ' ')"
     log "[$mb_index/$mb_total] $mb_name ($mb_id): $want message(s) → $dir"
@@ -166,21 +163,19 @@ jq -r '.[] | [.id, .name] | @tsv' "$STATE_DIR/mailboxes.json" \
         rm -f "$file"                        # no partial file left behind
         log "  FAIL export $eid"
         echo "$(date +%Y-%m-%dT%H:%M:%S) $mb_id $eid" >> "$FAILS"
-        grand_fail=$((grand_fail + 1))
       fi
     done < "$ids_file"
 
-    grand_got=$((grand_got + got))
     if [ "$MAX_PER_MAILBOX" -eq 0 ] && [ "$got" -lt "$want" ]; then
       log "  INCOMPLETE $mb_name: $got/$want on disk"
-      incomplete=1
     else
       log "  ok $mb_name: $got/$want"
     fi
   done
 
-# NOTE: the while-loop runs in a subshell (piped from jq), so its counters don't escape.
-# Recompute the final tally from the filesystem — the authoritative state.
+# NOTE: the while-loop runs in a subshell (piped from jq), so per-mailbox state can't
+# escape it. The final tally and exit code come from the filesystem — the authoritative
+# state, and the right gate across resume runs regardless of what this run did.
 on_disk="$(find "$DEST" -type f -name '*.eml' 2>/dev/null | wc -l | tr -d ' ')"
 fail_count=0
 [ -f "$FAILS" ] && fail_count="$(wc -l < "$FAILS" | tr -d ' ')"
