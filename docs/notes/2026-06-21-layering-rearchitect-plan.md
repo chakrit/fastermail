@@ -9,8 +9,13 @@ good", 2026-06-22). Shipped + **pushed to `gh/main`**: step 1 (lib/bin split, `f
 
 **Docs pass done (2026-06-22):** README → `docs/guides/`, new everyday/scripting/backup
 guides, notes synced. Standalone CLI work that landed alongside (not part of the
-rearchitect): `resolve_mailbox` raw-id passthrough (`90321b4`) + a resumable whole-account
-backup script (`8fac74a`). **Next: implement step 2** with the now-confirmed forks below.
+rearchitect): `resolve_mailbox` raw-id passthrough (`90321b4`); a resumable whole-account
+backup script (`8fac74a`, shellcheck-/general-coding-audited in `a205f71`). **Pushed to
+`gh/main` through `b7b4ef7`** (chakrit pushed mid-session); the audit fix `a205f71` is the
+only substantive commit still local. The full backup is chakrit-triggered
+(`scripts/backup-mail.sh`); the smoke test left 5 messages + start cursor `J1071504` in
+gitignored `mail/`, resume-safe. **Next: implement step 2** with the now-confirmed forks
+below.
 
 **Two design forks — CONFIRMED by chakrit (2026-06-22)** (both define the per-resource
 pattern; lock 1 settled the read *shape* via `email_get`, but NOT these):
@@ -179,3 +184,6 @@ as the pattern slice for step 2. Multi-session effort, touches nearly every file
   role aliases + names; a raw id errors.~~ **DONE (`90321b4`)** — added a Step-0 exact
   id match; surfaced by the backup script needing to reach two folders both named
   "Crypto".
+- `shellcheck -o all` flags SC2292 ("prefer `[[ ]]` over `[ ]`"), which contradicts
+  `general-coding`'s POSIX-`sh` target. Use the default ruleset and reject SC2292.
+  Candidate one-line caveat for general-coding's Shell section via ace-school (not done).
