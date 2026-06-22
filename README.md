@@ -50,56 +50,22 @@ export FASTMAIL_API_TOKEN=fmu1-...
 ## Usage
 
 ```bash
-# List recent emails (inbox is the default)
-fm ls
-
-# List emails from a specific mailbox
-fm ls sent
-fm ls archive
-
-# Read an email
-fm read <email-id>
-
-# Move emails to a mailbox (fuzzy matching works)
-fm mv <email-id> trash
-fm mv <email-id> proj        # matches "Projects"
-
-# Search
-fm emails search -q "invoice"
-fm emails search --from alice@example.com --after 2025-01-01
-
-# Flag/unflag
-fm emails flag <email-id> --flag seen
-fm emails flag <email-id> --flag flagged --unset
-
-# Send
-fm emails send --to user@example.com --subject "Hello" --body "Hi there"
-echo "Hello" | fm emails send --to user@example.com --subject "Piped"
-
-# Delete (moves to Trash)
-fm emails delete <email-id>
-fm emails delete <email-id> --permanent
+fm ls                                    # list the inbox
+fm read <email-id>                       # read a message
+fm mv <email-id> archive                 # move (role alias, name, or id)
+fm emails search -q "invoice"            # search
+fm emails send --to a@b.com --subject Hi --body "Hello"
 ```
 
-### Mailboxes
+Full walkthroughs live in [`docs/guides/`](docs/guides/):
 
-```bash
-fm mailboxes list
-fm mailboxes create "Projects"
-fm mailboxes rename <mailbox-id> "New Name"
-fm mailboxes delete <mailbox-id>
-```
+- **[Everyday use](docs/guides/regular-use.md)** — triage, search, mailboxes, contacts,
+  vacation, masked email.
+- **[Scripting](docs/guides/scripting.md)** — JSON output, `jq`, exit codes, incremental
+  sync, automation.
+- **[Backup](docs/guides/backup.md)** — export your entire account to `.eml`, resumably.
 
-### Other commands
-
-```bash
-fm identities list              # sending addresses
-fm vacation get                 # auto-reply status
-fm vacation set --enabled --subject "OOO" --text-body "Back Monday"
-fm masked-emails list           # disposable addresses
-fm masked-emails create --domain example.com
-fm config                       # show current config
-```
+Every command, flag, and default: [`docs/reference/cli.md`](docs/reference/cli.md).
 
 ## Output formats
 
