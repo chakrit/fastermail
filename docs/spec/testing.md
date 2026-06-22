@@ -110,6 +110,7 @@ impl MockJmap {
 
     fn default_session(server: &MockServer) -> Value {
         json!({
+            "username": "test@fastmail.com",
             "primaryAccounts": {
                 "urn:ietf:params:jmap:core": TEST_ACCOUNT_ID,
                 "urn:ietf:params:jmap:mail": TEST_ACCOUNT_ID,
@@ -125,6 +126,11 @@ impl MockJmap {
                 }
             },
             "apiUrl": format!("{}/jmap/api/", server.base_url()),
+            "downloadUrl": format!(
+                "{}/jmap/download/{{accountId}}/{{blobId}}/{{name}}?type={{type}}",
+                server.base_url()
+            ),
+            "uploadUrl": format!("{}/jmap/upload/", server.base_url()),
             "capabilities": {
                 "urn:ietf:params:jmap:core": {
                     "maxSizeUpload": 50000000,

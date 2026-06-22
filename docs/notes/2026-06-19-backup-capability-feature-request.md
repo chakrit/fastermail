@@ -1,5 +1,18 @@
 # Backup capability — feature request (from notes.claude)
 
+**RESOLVED (2026-06-22).** Shipped as **primitives, not a monolithic `fm backup`**. The
+approach is the
+[JMAP-library decision](../decisions/2026-06-21-jmap-library-and-backup-primitives.md).
+All four missing pieces below now exist as CLI/lib accessors: blob/attachment download +
+raw RFC822 (`fm emails export`), incremental sync (`fm emails changes`), and pagination
+(`fm emails list/search --all`). The "full local backup" goal is delivered by
+`scripts/backup-mail.sh` (`8fac74a`), which composes them — see
+[`../guides/backup.md`](../guides/backup.md). The `fm backup --to <dir>` surface in
+"Desired output shape" was **superseded** by this primitives-first approach; the consumer
+(`notes` repo `src/mail/`) wraps the primitives or the script instead.
+
+---
+
 Captured from `chakrit.notes.claude` over the ace-connect bridge on 2026-06-19.
 The consumer is the `notes` repo's `src/mail/`, which will wrap `fm backup`
 (Maildir/.eml into a git-crypt'd tree). Until this exists, backup stays on

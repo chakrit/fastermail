@@ -1,30 +1,33 @@
 # Layering rearchitect — audit + plan (2026-06-21)
 
-**Status: STEP 1 DONE; STEP 2 PAUSED at two forks (as of 2026-06-22).** The three locks
-were adopted under chakrit's AFK delegation and **confirmed by chakrit** ("all good",
-2026-06-22). Shipped + **pushed to `gh/main`**: step 1 (lib/bin split, `f049938`);
+**Status: STEP 1 DONE; STEP 2 forks CONFIRMED — ready to resume (as of 2026-06-22).** The
+three locks were adopted under chakrit's AFK delegation and **confirmed by chakrit** ("all
+good", 2026-06-22). Shipped + **pushed to `gh/main`**: step 1 (lib/bin split, `f049938`);
 `email_state` bootstrap primitive (`af96f9d`); faithful L1 `email_get` + typed `Email`
 (`a8cb9d5`, the zero-loss read shape — types newtype ids, flattens the rest); spec sync
 (`754a233`); dead_code cleanup (`0fc652e`).
 
-**Next session: a docs pass first** (chakrit's call), then resume the rearchitect at the
-two forks below.
+**Docs pass done (2026-06-22):** README → `docs/guides/`, new everyday/scripting/backup
+guides, notes synced. Standalone CLI work that landed alongside (not part of the
+rearchitect): `resolve_mailbox` raw-id passthrough (`90321b4`) + a resumable whole-account
+backup script (`8fac74a`). **Next: implement step 2** with the now-confirmed forks below.
 
-**Two design forks that need chakrit before resuming step 2** (both define the
-per-resource pattern; lock 1 settled the read *shape* via `email_get`, but NOT these):
+**Two design forks — CONFIRMED by chakrit (2026-06-22)** (both define the per-resource
+pattern; lock 1 settled the read *shape* via `email_get`, but NOT these):
 
-- **(A) Read-projection relocation.** Route the existing list/get/search through `email_get`
-  and move projection — `extract_body_content` (part-ref→string, synth `date`, drop
-  `bodyValues`), the property pin, the MCP token-trim — out of `actions/email.rs` into the
-  CLI + MCP presenters (each owns its L3). Forces: how to model body-value fetching in L1
-  (`Email/get` needs `fetchTextBodyValues`/`fetchHTMLBodyValues`/`fetchAllBodyValues`, args
-  beyond `properties`). **REC:** add a small body-fetch option to `email_get`; keep CLI/MCP
-  output byte-identical (CLI renders table/body from `Email`; MCP keeps today's trimmed
-  shape).
-- **(B) Typed mutation API shape** (the decision doc's open fork). (a) faithful L1
-  `email_set(create, update, destroy) -> EmailSetResponse`; (b) higher-level typed ops
-  (`email_move`, `email_set_keywords`, `email_destroy`); (c) re-export `actions` as-is.
-  **REC:** (a), consistent with `email_get`/`email_query`; add sugar ops later.
+- **(A) Read-projection relocation. → CONFIRMED: the REC.** Route the existing
+  list/get/search through `email_get` and move projection — `extract_body_content`
+  (part-ref→string, synth `date`, drop `bodyValues`), the property pin, the MCP
+  token-trim — out of `actions/email.rs` into the CLI + MCP presenters (each owns
+  its L3). Add a small
+  body-fetch option to `email_get` (`Email/get` needs
+  `fetchTextBodyValues`/`fetchHTMLBodyValues`/`fetchAllBodyValues`, args beyond
+  `properties`); keep CLI/MCP output **byte-identical** (CLI renders table/body from
+  `Email`; MCP keeps today's trimmed shape).
+- **(B) Typed mutation API shape. → CONFIRMED: option (a).** Faithful L1
+  `email_set(create, update, destroy) -> EmailSetResponse`, consistent with
+  `email_get`/`email_query`. Higher-level typed ops (`email_move`, `email_set_keywords`,
+  `email_destroy`) come later as sugar; not re-exporting `actions` as-is.
 
 Once decided: finish step 2 on Email, propagate to the other five resources, then steps 3–4.
 
@@ -172,6 +175,7 @@ as the pattern slice for step 2. Multi-session effort, touches nearly every file
   it for `cargo test` via a *self dev-dependency* (`fastermail = { path = ".",
   features = ["testutil"] }`); release builds never pull it. Documented in
   `../spec/testing.md`. Candidate to promote into `rust-coding` via ace-school (not done).
-- `--mailbox` help claims it accepts an "ID", but `resolve_mailbox` only handles
-  role aliases + names; a raw id errors. Pre-existing. Fix when the CLI is touched
-  in step 2/3.
+- ~~`--mailbox` help claims it accepts an "ID", but `resolve_mailbox` only handles
+  role aliases + names; a raw id errors.~~ **DONE (`90321b4`)** — added a Step-0 exact
+  id match; surfaced by the backup script needing to reach two folders both named
+  "Crypto".
