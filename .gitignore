@@ -22,3 +22,6 @@ ace.local.toml
 .opencode/skills
 ace.local.toml
 # end ACE
+
+# local FastMail backup (scripts/backup-mail.sh)
+/mail/
