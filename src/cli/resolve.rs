@@ -18,6 +18,7 @@ const ROLE_ALIASES: &[(&str, &str)] = &[
 /// Resolve a user-provided mailbox string to a JMAP mailbox ID.
 ///
 /// Resolution order:
+/// 0. Exact JMAP id match (the stable, unambiguous handle — reaches duplicate-named mailboxes)
 /// 1. Role alias lookup (e.g. "inbox" → find mailbox with role "inbox")
 /// 2. Exact name match (case-insensitive)
 /// 3. Prefix match (case-insensitive)
@@ -42,6 +43,12 @@ pub fn resolve_mailbox(input: &str, ctx: &Context, io: &Io) -> Result<String> {
     let mailboxes = value
         .as_array()
         .ok_or_else(|| Error::InvalidParams("failed to fetch mailbox list".to_string()))?;
+
+    // Step 0: Exact JMAP id match. The stable, unambiguous handle (the `--mailbox` help
+    // advertises "ID"); wins over role/name so duplicate-named mailboxes stay reachable.
+    if let Some(id) = find_by_id(mailboxes, input) {
+        return Ok(id);
+    }
 
     // Step 1: Check if input is a role alias
     let input_lower = input.to_lowercase();
@@ -70,6 +77,14 @@ fn role_for_alias(input: &str) -> Option<&'static str> {
         .iter()
         .find(|(alias, _)| *alias == input)
         .map(|(_, role)| *role)
+}
+
+/// Find a mailbox by exact JMAP id (case-sensitive). Returns None if no id matches.
+fn find_by_id(mailboxes: &[serde_json::Value], id: &str) -> Option<String> {
+    mailboxes.iter().find_map(|m| {
+        let m_id = json::str_at(m, "/id")?;
+        (m_id == id).then(|| m_id.to_string())
+    })
 }
 
 /// Find a mailbox by its JMAP role field.
@@ -175,6 +190,19 @@ mod tests {
         ];
         assert_eq!(find_by_role(&mailboxes, "inbox"), Some("mb-1".to_string()));
         assert_eq!(find_by_role(&mailboxes, "drafts"), None);
+    }
+
+    #[test]
+    fn test_find_by_id() {
+        // Two mailboxes share the name "Crypto"; only their ids tell them apart.
+        let mailboxes = vec![
+            serde_json::json!({"id": "P8k", "name": "Crypto", "role": null}),
+            serde_json::json!({"id": "P4k", "name": "Crypto", "role": null}),
+        ];
+        assert_eq!(find_by_id(&mailboxes, "P8k"), Some("P8k".to_string()));
+        assert_eq!(find_by_id(&mailboxes, "P4k"), Some("P4k".to_string()));
+        assert_eq!(find_by_id(&mailboxes, "P8K"), None); // ids are case-sensitive
+        assert_eq!(find_by_id(&mailboxes, "nope"), None);
     }
 
     #[test]
