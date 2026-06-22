@@ -19,6 +19,9 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=_shard.sh
+source "$SCRIPT_DIR/_shard.sh"
 
 DEST="${BACKUP_DIR:-$ROOT_DIR/mail}"
 FM="${FM:-$ROOT_DIR/target/release/fm}"
@@ -92,6 +95,56 @@ sanitize() {
   printf '%s' "$s"
 }
 
+# --- export with retry + bounded time --------------------------------------
+RETRIES="${RETRIES:-3}"
+EXPORT_TIMEOUT="${EXPORT_TIMEOUT:-300}"   # seconds per attempt; 0 disables
+
+# Pick a timeout command if one exists; empty means "run the export without a timeout".
+TIMEOUT_BIN=""
+if [ "$EXPORT_TIMEOUT" -gt 0 ]; then
+  if command -v timeout >/dev/null 2>&1; then
+    TIMEOUT_BIN="timeout"
+  elif command -v gtimeout >/dev/null 2>&1; then
+    TIMEOUT_BIN="gtimeout"
+  else
+    log "note: no timeout/gtimeout found — per-attempt timeout disabled (brew install coreutils)"
+  fi
+fi
+
+# One export attempt, wrapped in the per-attempt timeout when one is available.
+fm_export() {  # fm_export <eid> <out-path>
+  if [ -n "$TIMEOUT_BIN" ]; then
+    "$TIMEOUT_BIN" "$EXPORT_TIMEOUT" "$FM" emails export "$1" --to "$2"
+  else
+    "$FM" emails export "$1" --to "$2"
+  fi
+}
+
+# Export one message to <out>, retrying transient failures with linear backoff. A momentary
+# blip (the kind that silently dropped 18 messages last run) no longer loses the message.
+# On permanent failure the captured reason — not /dev/null — is appended to $FAILS.
+export_with_retry() {  # export_with_retry <mb_id> <eid> <out-path>
+  local mb_id="$1" eid="$2" out="$3"
+  local attempt=1 reason rc
+
+  while :; do
+    reason="$(fm_export "$eid" "$out" 2>&1 >/dev/null)"
+    rc=$?
+    [ "$rc" -eq 0 ] && looks_rfc822 "$out" && return 0
+
+    rm -f "$out"                            # no partial/garbage file left behind
+    if [ "$attempt" -ge "$RETRIES" ]; then
+      reason="$(printf '%s' "$reason" | tr '\n' ' ')"
+      printf '%s %s %s rc=%s %s\n' \
+        "$(date +%Y-%m-%dT%H:%M:%S)" "$mb_id" "$eid" "$rc" "$reason" >> "$FAILS"
+      return 1
+    fi
+
+    sleep "$attempt"                        # 1s, 2s, … before the next attempt
+    attempt=$((attempt + 1))
+  done
+}
+
 log "backup starting → $DEST   (fm: $FM)"
 [ -n "$ONLY" ] && log "restricted to mailbox: $ONLY"
 [ "$MAX_PER_MAILBOX" -gt 0 ] && log "cap: $MAX_PER_MAILBOX message(s) per mailbox (smoke mode)"
@@ -144,25 +197,27 @@ jq -r '.[] | [.id, .name] | @tsv' "$STATE_DIR/mailboxes.json" \
         break
       fi
 
-      file="$dir/$eid.eml"
-      if [ -s "$file" ]; then
-        got=$((got + 1)); continue          # already have it → resume skip
+      shard="$(shard_of "$eid")"
+      file="$dir/$shard/$eid.eml"
+      # Skip if present at the sharded path OR the pre-sort flat path, so a resume never
+      # re-downloads the thousands of messages a not-yet-run sort.sh has left flat.
+      if [ -s "$file" ] || [ -s "$dir/$eid.eml" ]; then
+        got=$((got + 1)); continue
       fi
+      mkdir -p "$dir/$shard"
 
-      if "$FM" emails export "$eid" --to "$file" >/dev/null 2>&1 && looks_rfc822 "$file"; then
+      if export_with_retry "$mb_id" "$eid" "$file"; then
         bytes="$(wc -c < "$file" | tr -d ' ')"
         sha="$(sha256_of "$file")"
         jq -nc \
           --arg id "$eid" --arg mid "$mb_id" --arg mb "$mb_name" \
-          --arg path "${safe}__${mb_id}/$eid.eml" \
+          --arg path "${safe}__${mb_id}/$shard/$eid.eml" \
           --argjson bytes "$bytes" --arg sha "$sha" \
           '{emailId:$id, mailboxId:$mid, mailbox:$mb, path:$path, bytes:$bytes, sha256:$sha}' \
           >> "$MANIFEST"
         got=$((got + 1))
       else
-        rm -f "$file"                        # no partial file left behind
-        log "  FAIL export $eid"
-        echo "$(date +%Y-%m-%dT%H:%M:%S) $mb_id $eid" >> "$FAILS"
+        log "  FAIL export $eid (reason in $FAILS)"
       fi
     done < "$ids_file"
 
