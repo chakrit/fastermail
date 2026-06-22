@@ -1,27 +1,38 @@
 # Layering rearchitect — audit + plan (2026-06-21)
 
-**Status: IN PROGRESS (AFK run 2026-06-21).** The three locks were ADOPTED to their
-recommendations under chakrit's AFK delegation ("make more decisions autonomously,
-stop only on ones that really require me") — see the locks section below and `.afk.log`
-for the morning veto window. Shipped so far: step 1 (lib/bin split, `f049938`);
+**Status: STEP 1 DONE; STEP 2 PAUSED at two forks (as of 2026-06-22).** The three locks
+were adopted under chakrit's AFK delegation and **confirmed by chakrit** ("all good",
+2026-06-22). Shipped + **pushed to `gh/main`**: step 1 (lib/bin split, `f049938`);
 `email_state` bootstrap primitive (`af96f9d`); faithful L1 `email_get` + typed `Email`
 (`a8cb9d5`, the zero-loss read shape — types newtype ids, flattens the rest); spec sync
-(`754a233`) and a dead_code cleanup (`0fc652e`).
+(`754a233`); dead_code cleanup (`0fc652e`).
 
-**Stopped at two design forks that genuinely need chakrit** (both define the per-resource
-pattern; details + recommendations in `.afk.log`): **(A)** relocating read projection
-(`extract_body_content`, property pinning, MCP token-trim) out of `actions/` into the CLI +
-MCP presenters, and how to model body-value fetching in `email_get`; **(B)** the typed
-mutation API shape (faithful `email_set` vs higher-level ops vs re-export `actions` — the
-decision doc's open fork). Lock 1 settled the read *shape* (`email_get`); these forks are
-NOT settled by the locks. Once blessed: finish step 2 on Email, then propagate to the other
-five resources, then steps 3–4.
+**Next session: a docs pass first** (chakrit's call), then resume the rearchitect at the
+two forks below.
+
+**Two design forks that need chakrit before resuming step 2** (both define the
+per-resource pattern; lock 1 settled the read *shape* via `email_get`, but NOT these):
+
+- **(A) Read-projection relocation.** Route the existing list/get/search through `email_get`
+  and move projection — `extract_body_content` (part-ref→string, synth `date`, drop
+  `bodyValues`), the property pin, the MCP token-trim — out of `actions/email.rs` into the
+  CLI + MCP presenters (each owns its L3). Forces: how to model body-value fetching in L1
+  (`Email/get` needs `fetchTextBodyValues`/`fetchHTMLBodyValues`/`fetchAllBodyValues`, args
+  beyond `properties`). **REC:** add a small body-fetch option to `email_get`; keep CLI/MCP
+  output byte-identical (CLI renders table/body from `Email`; MCP keeps today's trimmed
+  shape).
+- **(B) Typed mutation API shape** (the decision doc's open fork). (a) faithful L1
+  `email_set(create, update, destroy) -> EmailSetResponse`; (b) higher-level typed ops
+  (`email_move`, `email_set_keywords`, `email_destroy`); (c) re-export `actions` as-is.
+  **REC:** (a), consistent with `email_get`/`email_query`; add sugar ops later.
+
+Once decided: finish step 2 on Email, propagate to the other five resources, then steps 3–4.
 
 Companions: design rulings in
 `../decisions/2026-06-21-jmap-library-and-backup-primitives.md`; the
 backup-primitives build log in `2026-06-21-afk-implementation-plan.md`.
 
-## Where we are (shipped; all on `main`, UNPUSHED — push is chakrit-gated)
+## Where we are (shipped + pushed to `gh/main`)
 
 - Backup primitives, slices 1–3: pagination + `fm emails list/search --all`
   (`b37a8d4`); incremental `Email/changes` + `fm emails changes` (`85e85f9`); raw
@@ -105,7 +116,7 @@ Per-resource notes:
   + prompts.
 - `lib.rs` exports L0/L1/sugar/types; `fm` bin + MCP become thin L3 callers.
 
-## Three locks — ADOPTED (AFK, 2026-06-21; chakrit may veto in the morning)
+## Three locks — ADOPTED & CONFIRMED (chakrit, 2026-06-22)
 
 1. **Read shape** → **typed struct + `#[serde(flatten)] rest: Map`** (the REC: types
    where they help, zero loss by default). Rejected raw `Value` passthrough.
@@ -115,10 +126,11 @@ Per-resource notes:
 3. **Migration style** → **strangler**: resource-by-resource, green commit each, app
    works throughout (the REC). Already in force (steps 1 + email_state landed green).
 
-Rationale for adopting autonomously: each lock had a standing recommendation, lock 2 was
-already chakrit's call, and the AFK brief explicitly delegated decisions. The blast radius
-is deliberately capped at one resource (Email) until chakrit blesses the pattern — nothing
-is pushed or published, so any lock is cheap to reverse.
+Rationale (the locks were adopted autonomously during the AFK run, then confirmed by
+chakrit "all good" 2026-06-22): each had a standing recommendation, lock 2 was already
+chakrit's call, and the brief delegated decisions. Read-shape work was deliberately capped
+at Email (`email_get`); the projection-relocation + mutation *pattern* still awaits the two
+forks in the status block before propagating to the other five resources.
 
 ## Path (strangler; green at every step)
 
@@ -141,8 +153,8 @@ as the pattern slice for step 2. Multi-session effort, touches nearly every file
 ## Subsumed by this plan
 
 - **`email_state`** (incremental bootstrap: `Email/get ids:[]` → response `state`)
-  = one L1 read accessor, lands in step 2's Email slice. Without it incremental
-  can't start (`--since 0` → `cannotCalculateChanges`, verified live).
+  = one L1 read accessor. **DONE** (`af96f9d`, standalone — not folded into step 2).
+  Without it incremental can't start (`--since 0` → `cannotCalculateChanges`, verified live).
 - **"Expose all JMAP fields"** (chakrit) = the faithful L1 reads in step 2.
 - **The decision doc's open naming question** (Flag vs `keyword`, `FieldChange`,
   flat `Contact`) collapses into steps 2–3: invented nouns move to L3 or take JMAP
@@ -154,6 +166,12 @@ as the pattern slice for step 2. Multi-session effort, touches nearly every file
   paginated-window mocks key on the colon-free quoted anchor value (see
   `MockJmap::handle_method_matching`). Candidate to promote into `rust-coding` via
   ace-school (not done).
+- **Sharing a test harness across a lib/bin split** (generic Rust): a lib's
+  `#[cfg(test)]` items can't cross into the bin crate's tests. Pattern used here —
+  gate the harness behind a `testutil` feature (optional `httpmock` dep), then enable
+  it for `cargo test` via a *self dev-dependency* (`fastermail = { path = ".",
+  features = ["testutil"] }`); release builds never pull it. Documented in
+  `../spec/testing.md`. Candidate to promote into `rust-coding` via ace-school (not done).
 - `--mailbox` help claims it accepts an "ID", but `resolve_mailbox` only handles
   role aliases + names; a raw id errors. Pre-existing. Fix when the CLI is touched
   in step 2/3.

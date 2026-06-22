@@ -6,9 +6,9 @@
 > now the historical build log for the backup primitives.
 
 ## Resume state
-- **16 commits** this session on `main` (`2fbd0b1..HEAD`), all green
-  (build / test / clippy, `#![deny(warnings)]`), tree clean. **UNPUSHED** — push
-  is chakrit-gated: `git push gh main`. (Prior AFK handoff: `.afk.log`, gitignored.)
+- Backup-primitives session: 16 commits on `main`, all green (build / test / clippy,
+  `#![deny(warnings)]`). **Pushed to `gh/main` on 2026-06-22** alongside the
+  layering-rearchitect run (see `2026-06-21-layering-rearchitect-plan.md`).
 - This session: full audit + readability/typed-enum refactors + the contacts &
   vacation full splits + a repo-wide rustfmt; then a 1-by-1 design walk on backup
   primitives → `../decisions/2026-06-21-jmap-library-and-backup-primitives.md`.
@@ -48,7 +48,8 @@ layer). Do NOT auto-rewrite committed code for the naming-alignment open questio
   cursor for its first incremental run. Fix: add L1 `JmapClient::email_state(account)
   -> State` (`Email/get` `ids:[]`, read response `state`) + a CLI surface
   (e.g. `fm emails changes` with no `--since` prints the current state). Small,
-  dep-free, completes the backup primitive set. NOT yet built — proposed.
+  dep-free, completes the backup primitive set. **RESOLVED — built in `af96f9d`**
+  (layering-rearchitect run): L1 `email_state` + `fm emails changes` with no `--since`.
 - **Test caveat captured in code**: httpmock 0.8 `body_includes` silently fails on
   substrings containing `:`; paginated-window mocks key on the colon-free quoted
   anchor value. See `MockJmap::handle_method_matching` doc.
