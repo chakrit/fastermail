@@ -64,7 +64,9 @@ while :; do
   fi
 
   rm -f "$file"
-  if [ "$attempt" -ge "$RETRIES" ]; then
+  # A timeout (rc=124) means the message exceeds EXPORT_TIMEOUT — retrying just re-pulls a
+  # doomed giant and hammers the server, so fail fast and log it once for a longer-timeout pass.
+  if [ "$rc" -eq 124 ] || [ "$attempt" -ge "$RETRIES" ]; then
     reason="$(printf '%s' "$reason" | tr '\n' ' ')"
     printf '%s %s %s rc=%s %s\n' "$(date +%Y-%m-%dT%H:%M:%S)" "$mb_id" "$eid" "$rc" "$reason" >> "$FAILS"
     exit 0
