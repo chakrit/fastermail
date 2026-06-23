@@ -24,12 +24,14 @@ DEST="${BACKUP_DIR:-$ROOT_DIR/mail}"
 FM="${FM:-$ROOT_DIR/target/release/fm}"
 CONCURRENCY="${CONCURRENCY:-8}"
 ONLY=""
+EXCLUDE=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --dest)        DEST="$2"; shift 2 ;;
     --fm)          FM="$2"; shift 2 ;;
     --concurrency) CONCURRENCY="$2"; shift 2 ;;
     --only)        ONLY="$2"; shift 2 ;;
+    --exclude)     EXCLUDE="$2"; shift 2 ;;
     -h|--help)     sed -n '2,16p' "$0"; exit 0 ;;
     *)             echo "unknown arg: $1" >&2; exit 2 ;;
   esac
@@ -88,6 +90,9 @@ log "enumerating mailboxes + building work list…"
 : > "$WORK"
 while IFS="$(printf '\t')" read -r mb_id mb_name; do
   if [ -n "$ONLY" ] && [ "$ONLY" != "$mb_id" ] && [ "$ONLY" != "$mb_name" ]; then
+    continue
+  fi
+  if [ -n "$EXCLUDE" ] && { [ "$EXCLUDE" = "$mb_id" ] || [ "$EXCLUDE" = "$mb_name" ]; }; then
     continue
   fi
 
