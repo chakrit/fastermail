@@ -68,6 +68,7 @@ sanitize() {
 
 # A timeout command for the workers, if one exists (exported below).
 EXPORT_TIMEOUT="${EXPORT_TIMEOUT:-300}"
+STALL_CYCLES="${STALL_CYCLES:-20}"   # watchdog: no-download 30s cycles before STOP; 0 disables
 TIMEOUT_BIN=""
 if [ "$EXPORT_TIMEOUT" -gt 0 ]; then
   if command -v timeout >/dev/null 2>&1; then
@@ -144,8 +145,8 @@ while kill -0 "$pool_pid" 2>/dev/null; do
   done_now=0; [ -f "$MANIFEST" ] && done_now="$(wc -l < "$MANIFEST" | tr -d ' ')"
   if [ "$done_now" -le "$done_prev" ]; then
     stall=$((stall + 1))
-    if [ "$stall" -ge 20 ]; then
-      log "WATCHDOG: no new downloads for ~10 min — tripping STOP (stalled or offline)"
+    if [ "$STALL_CYCLES" -gt 0 ] && [ "$stall" -ge "$STALL_CYCLES" ]; then
+      log "WATCHDOG: no new downloads for ~$((STALL_CYCLES / 2)) min — tripping STOP (stalled or offline)"
       touch "$STOP"; kill "$pool_pid" 2>/dev/null; break
     fi
   else
