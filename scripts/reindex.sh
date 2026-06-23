@@ -48,22 +48,24 @@ done < <(jq -r '.mailboxId' "$MANIFEST" | sort -u)
 jq -cs '.' "$meta_lines" > "$meta_array"
 
 # --- enrich each record; integrity + locator fields carried over unchanged --
+# Build the id->metadata index ONCE under `-n`, then stream the manifest. Putting the index
+# build inside the per-record pipeline (the obvious way) rebuilds it for every record —
+# O(n^2), which crawls on a 64k manifest.
 tmp="$MANIFEST.tmp.$$"
-jq -c --slurpfile m "$meta_array" '
+jq -c -n --slurpfile m "$meta_array" --slurpfile recs "$MANIFEST" '
   ($m[0] | reduce .[] as $e ({}; .[$e.id] = $e)) as $idx
-  | . as $rec
-  | ($idx[$rec.emailId] // {}) as $meta
+  | $recs[]
   | {
-      emailId:    $rec.emailId,
-      mailboxId:  $rec.mailboxId,
-      receivedAt: $meta.receivedAt,
-      from:       $meta.from,
-      subject:    $meta.subject,
-      bytes:      $rec.bytes,
-      sha256:     $rec.sha256,
-      path:       $rec.path
+      emailId,
+      mailboxId,
+      receivedAt: $idx[.emailId].receivedAt,
+      from:       $idx[.emailId].from,
+      subject:    $idx[.emailId].subject,
+      bytes,
+      sha256,
+      path
     }
-' "$MANIFEST" > "$tmp"
+' > "$tmp"
 mv "$tmp" "$MANIFEST"
 
 log "reindexed $(wc -l < "$MANIFEST" | tr -d ' ') record(s) in $MANIFEST"
