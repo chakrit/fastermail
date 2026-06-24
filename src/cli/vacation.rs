@@ -126,3 +126,112 @@ pub fn run(cmd: VacationCommand, ctx: &Context, io: &Io) -> Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testutil::mock_jmap::{MockJmap, TEST_ACCOUNT_ID};
+
+    fn mock_ctx(mock: &MockJmap) -> Context {
+        let (client, _) =
+            crate::jmap::client::JmapClient::connect_to(&mock.session_url(), "fake-token")
+                .expect("session connect");
+        Context {
+            jmap: client,
+            account_id: TEST_ACCOUNT_ID.to_string(),
+            recorder: None,
+        }
+    }
+
+    fn captured(buffer: &std::sync::Arc<std::sync::Mutex<Vec<u8>>>) -> String {
+        String::from_utf8(buffer.lock().expect("buffer lock").clone()).expect("utf8 output")
+    }
+
+    // --- Presenter golden tests (byte-identity net for CLI --json projection) ---
+    //
+    // In Json mode the CLI emits `io.json(value)` = `to_string_pretty(value)` + newline.
+    // These pin the exact emitted bytes — get (projected fields) and set (success) — so
+    // relocating projection stays byte-identical.
+
+    #[test]
+    fn golden_get_json_projects_fields() {
+        let mock = MockJmap::start();
+        let ctx = mock_ctx(&mock);
+        mock.handle_method(
+            "VacationResponse/get",
+            serde_json::json!({
+                "methodResponses": [["VacationResponse/get", {
+                    "list": [{
+                        "id": "singleton",
+                        "isEnabled": true,
+                        "fromDate": "2026-01-01T00:00:00Z",
+                        "toDate": "2026-01-15T00:00:00Z",
+                        "subject": "OOO",
+                        "textBody": "Away",
+                        "htmlBody": "<p>Away</p>"
+                    }]
+                }, "call-0"]]
+            }),
+        );
+
+        let (io, buffer) = Io::capturing(OutputMode::Json);
+        run(VacationCommand::Get, &ctx, &io).expect("get should succeed");
+
+        let expected = serde_json::json!({
+            "isEnabled": true,
+            "fromDate": "2026-01-01T00:00:00Z",
+            "toDate": "2026-01-15T00:00:00Z",
+            "subject": "OOO",
+            "textBody": "Away",
+            "htmlBody": "<p>Away</p>"
+        });
+        assert_eq!(
+            captured(&buffer),
+            format!(
+                "{}\n",
+                serde_json::to_string_pretty(&expected).expect("pretty")
+            ),
+            "CLI --json vacation get output bytes drifted"
+        );
+    }
+
+    #[test]
+    fn golden_set_json_returns_success() {
+        let mock = MockJmap::start();
+        let ctx = mock_ctx(&mock);
+        mock.handle_method(
+            "VacationResponse/set",
+            serde_json::json!({
+                "methodResponses": [["VacationResponse/set", {
+                    "updated": {"singleton": null}
+                }, "call-0"]]
+            }),
+        );
+
+        let (io, buffer) = Io::capturing(OutputMode::Json);
+        run(
+            VacationCommand::Set {
+                enabled: true,
+                disabled: false,
+                from: None,
+                to: None,
+                subject: Some("On vacation".to_string()),
+                text_body: None,
+                html_body: None,
+            },
+            &ctx,
+            &io,
+        )
+        .expect("set should succeed");
+
+        let expected = serde_json::json!({ "success": true });
+        assert_eq!(
+            captured(&buffer),
+            format!(
+                "{}\n",
+                serde_json::to_string_pretty(&expected).expect("pretty")
+            ),
+            "CLI --json vacation set output bytes drifted"
+        );
+    }
+}

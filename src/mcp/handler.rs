@@ -797,4 +797,89 @@ mod tests {
             "MCP identity list output bytes drifted"
         );
     }
+
+    #[test]
+    fn golden_get_vacation_projects_fields() {
+        let mock = crate::testutil::mock_jmap::MockJmap::start();
+        let ctx = mock_ctx(&mock);
+        mock.handle_method(
+            "VacationResponse/get",
+            serde_json::json!({
+                "methodResponses": [["VacationResponse/get", {
+                    "list": [{
+                        "id": "singleton",
+                        "isEnabled": true,
+                        "fromDate": "2026-01-01T00:00:00Z",
+                        "toDate": "2026-01-15T00:00:00Z",
+                        "subject": "OOO",
+                        "textBody": "Away",
+                        "htmlBody": "<p>Away</p>"
+                    }]
+                }, "call-0"]]
+            }),
+        );
+
+        let response = handle_tools_call(
+            serde_json::json!({
+                "name": "get_vacation_response",
+                "arguments": {}
+            }),
+            &ctx,
+        );
+
+        let text = tool_call_text(&response);
+        let expected = serde_json::json!({
+            "isEnabled": true,
+            "fromDate": "2026-01-01T00:00:00Z",
+            "toDate": "2026-01-15T00:00:00Z",
+            "subject": "OOO",
+            "textBody": "Away",
+            "htmlBody": "<p>Away</p>"
+        });
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&text).expect("text should be JSON"),
+            expected,
+            "projected vacation Value drifted"
+        );
+        assert_eq!(
+            text,
+            serde_json::to_string_pretty(&expected).expect("pretty"),
+            "MCP vacation get output bytes drifted"
+        );
+    }
+
+    #[test]
+    fn golden_set_vacation_returns_success() {
+        let mock = crate::testutil::mock_jmap::MockJmap::start();
+        let ctx = mock_ctx(&mock);
+        mock.handle_method(
+            "VacationResponse/set",
+            serde_json::json!({
+                "methodResponses": [["VacationResponse/set", {
+                    "updated": {"singleton": null}
+                }, "call-0"]]
+            }),
+        );
+
+        let response = handle_tools_call(
+            serde_json::json!({
+                "name": "set_vacation_response",
+                "arguments": { "isEnabled": true, "subject": "On vacation" }
+            }),
+            &ctx,
+        );
+
+        let text = tool_call_text(&response);
+        let expected = serde_json::json!({ "success": true });
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&text).expect("text should be JSON"),
+            expected,
+            "vacation set Value drifted"
+        );
+        assert_eq!(
+            text,
+            serde_json::to_string_pretty(&expected).expect("pretty"),
+            "MCP vacation set output bytes drifted"
+        );
+    }
 }
