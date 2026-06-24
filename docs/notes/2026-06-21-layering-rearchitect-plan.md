@@ -2,8 +2,10 @@
 
 **Status: STEP 1 DONE; STEP 2 Email DONE (both forks landed 2026-06-25, committed not
 pushed — see the "fork A LANDED" section at the bottom); STEP 2 Identity DONE (migrated
-2026-06-25, committed not pushed — see "Step 2 / Identity — MIGRATED" at the bottom); next:
-propagate the pattern to vacation, then mailbox / masked_email / contact.** The
+2026-06-25, committed not pushed — see "Step 2 / Identity — MIGRATED" at the bottom); STEP 2
+Vacation DONE (migrated 2026-06-25, committed not pushed — see "Step 2 / Vacation —
+MIGRATED" at the bottom); next: propagate the pattern to mailbox, then masked_email /
+contact.** The
 three locks were adopted under chakrit's AFK delegation and **confirmed by chakrit** ("all
 good", 2026-06-22). Shipped + **pushed to `gh/main`**: step 1 (lib/bin split, `f049938`);
 `email_state` bootstrap primitive (`af96f9d`); faithful L1 `email_get` + typed `Email`
@@ -502,3 +504,55 @@ byte-identical. **contact is HELD for attended review** — highest byte-identic
 `actions::project_fields*` copies (path step 4), then steps 3–4.
 
 Loop paused at this checkpoint — resumes on "keep going".
+
+## Step 2 / Vacation — MIGRATED (2026-06-25, committed, NOT pushed)
+
+Resource 2/5. Vacation now mirrors the Email/Identity shape; **mailbox is next** (roadmap
+order: ~~identity~~ → ~~vacation~~ → mailbox → masked_email → contact).
+
+Commits (on `main`, ahead of `gh/main` — awaiting push):
+- `787fa9e` — presenter golden tests (byte-identity net, captured FIRST against the
+  still-projecting code, kept green through the move). Both get AND set, both front-ends:
+  MCP `golden_get_vacation_projects_fields` / `golden_set_vacation_returns_success` (via
+  `handle_tools_call` → `tool_call_text`); CLI `golden_get_json_projects_fields` /
+  `golden_set_json_returns_success` (via `Io::capturing(Json)`). Each pins exact
+  `to_string_pretty` bytes; the get fixture carries `id`/`htmlBody` to prove they stay
+  projected out. This commit builds (tests against existing code).
+- `99deada` — the migration: faithful L1 `vacation_get`/`vacation_set` + typed
+  `VacationResponse`/`VacationResponseId`/`VacationGetResponse`/`VacationSetResponse`
+  (`src/jmap/vacation.rs`, `pub mod vacation;` in `jmap/mod.rs`). Actions return faithful
+  data; projection moved to `present::project_vacation`, applied in the MCP/CLI get arms;
+  the set arms emit `present::set_ok()`.
+
+**No singleton-id loss:** the singleton is JMAP id `"singleton"`; the get view projects it
+out (`VACATION_FIELDS` = the 6 settable fields, the prior `GET_FIELDS`), matching the old
+output exactly. The faithful `VacationResponse` keeps `id` + every field in `rest`.
+
+**How `FieldChange` (the invented noun) was resolved — MOVED TO L3, not renamed.** JMAP has
+no `FieldChange` concept; it expresses the three intents directly in the `update` patch
+(omit the key = leave, write `null` = clear, write a value = set). So `FieldChange`
+(Leave/Clear/Set) is L3 *input-parsing*: it translates optional CLI/MCP args into a JMAP
+patch. Relocated the enum + the patch builder out of the data layer (`actions/vacation.rs`)
+into `present.rs` as `present::FieldChange` + `present::build_vacation_update`. The L1
+`vacation_set(account_id, update: Value)` is a pure faithful pass-through (mirrors
+`email_set`'s update half) — no shaping in the data layer. The action assembles the patch
+via the present helper, calls `vacation_set`, and surfaces SetErrors via
+`VacationSetResponse::check_errors`.
+
+**New shared L3 helper:** `present::set_ok() -> {"success": true}` — the `{success:true}`
+MCP-wrapper shape, now emitted by both front-ends after the typed set returns rather than
+returned from the action (per the Phase B "factor the shared scaffolding" finding). The
+remaining unmigrated set actions (mailbox/masked_email) reuse this next.
+
+Set output is now an L3 wrapper end-to-end: the action returns the faithful `updated` map;
+CLI/MCP both emit `set_ok()`. Byte-identical to the prior `{success:true}` (goldens green).
+
+Verify gate green: `cargo test` (33 lib + 163 bin + doctests), `cargo clippy
+--all-targets`, `cargo fmt --check` (exit 0) all pass. Each commit independently builds
+under `#![deny(warnings)]` (golden commit = tests-against-existing-code; migration commit =
+helper + first use together). One pre-existing parallel-httpmock flake observed once in 7
+runs (the documented shared-substring carry-forward) — not introduced here; stable
+single-threaded and across repeated runs.
+
+`actions::project_fields*` still live (mailbox/masked_email/contact use them); delete path
+unchanged (after all five migrate).
