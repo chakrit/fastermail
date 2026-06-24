@@ -4,8 +4,9 @@
 pushed — see the "fork A LANDED" section at the bottom); STEP 2 Identity DONE (migrated
 2026-06-25, committed not pushed — see "Step 2 / Identity — MIGRATED" at the bottom); STEP 2
 Vacation DONE (migrated 2026-06-25, committed not pushed — see "Step 2 / Vacation —
-MIGRATED" at the bottom); next: propagate the pattern to mailbox, then masked_email /
-contact.** The
+MIGRATED" at the bottom); STEP 2 Mailbox DONE (migrated 2026-06-25, committed not pushed —
+see "Step 2 / Mailbox — MIGRATED" at the bottom); next: propagate the pattern to
+masked_email, then contact.** The
 three locks were adopted under chakrit's AFK delegation and **confirmed by chakrit** ("all
 good", 2026-06-22). Shipped + **pushed to `gh/main`**: step 1 (lib/bin split, `f049938`);
 `email_state` bootstrap primitive (`af96f9d`); faithful L1 `email_get` + typed `Email`
@@ -555,4 +556,68 @@ runs (the documented shared-substring carry-forward) — not introduced here; st
 single-threaded and across repeated runs.
 
 `actions::project_fields*` still live (mailbox/masked_email/contact use them); delete path
+unchanged (after all five migrate).
+
+## Step 2 / Mailbox — MIGRATED (2026-06-25, committed, NOT pushed)
+
+Resource 3/5. Mailbox now mirrors the Email/Identity/Vacation shape; **masked_email is
+next** (roadmap order: ~~identity~~ → ~~vacation~~ → ~~mailbox~~ → masked_email →
+contact).
+
+Commits (on `main`, ahead of `gh/main` — awaiting push):
+- `0579b14` — presenter golden tests (byte-identity net, captured FIRST against the
+  still-projecting code, kept green through the move). List AND manage, both front-ends:
+  MCP `golden_list_mailboxes_projects_fields` / `golden_list_mailboxes_filters_by_role` /
+  `golden_manage_mailbox_{create,rename,delete}_returns_id` (via `handle_tools_call` →
+  `tool_call_text`); CLI `golden_list_json_projects_fields` /
+  `golden_list_json_filters_by_role` / `golden_create_json_returns_id` /
+  `golden_{rename,delete}_json_returns_success` (via `Io::capturing(Json)`). Each pins
+  exact `to_string_pretty` bytes; list fixtures carry the 5 dropped fields
+  (sortOrder/totalThreads/unreadThreads/myRights/isSubscribed) to prove they stay
+  projected out. This commit builds (tests against existing code) — independently
+  re-verified in a throwaway worktree.
+- `6d286f2` — the migration: faithful L1 `mailbox_get`/`mailbox_set` + typed
+  `Mailbox`/`MailboxId`/`MailboxGetResponse`/`MailboxSetResponse` (`src/jmap/mailbox.rs`,
+  `pub mod mailbox;`). `mailbox_get` mirrors `identity_get`; `mailbox_set` mirrors
+  `email_set` (create/update/destroy in one call); `MailboxSetResponse::check_errors`
+  mirrors `EmailSetResponse`. Actions return faithful data; projection + role filter +
+  wrappers moved to L3.
+
+**Role filter moved to L3.** `ListMailboxes` is now a unit struct returning the faithful,
+unfiltered list; `present::project_mailbox_list(value, role)` owns both the field
+selection (`MAILBOX_LIST_FIELDS`, reusing the generic `project_list`) and the role filter.
+The two action-level role-filter tests were relocated to `present`
+(`project_mailbox_list_filters_by_role`) + the goldens; the remaining action list test now
+asserts faithful (unprojected) data (`sortOrder` present).
+
+**The `{success, mailboxId}` wrapper → L3 via `present::set_with_id(id_field, id)`** (new
+shared helper, alongside `set_ok`). `ManageMailbox::run` returns the faithful
+`Mailbox/set` response (no wrapper); `ManageMailbox::resolved_id(&value)` digs the
+affected id (created id from the response, or the input id for rename/delete). The
+front-ends wrap: MCP create/rename/delete all emit `{success, mailboxId}`; CLI create
+emits it, CLI rename/delete emit bare `{success}` via `set_ok()` — **both prior shapes
+preserved exactly** (the asymmetry is original behavior, pinned by the goldens).
+`MailboxSetResponse` gained `Serialize` (faithful round-trip) so the action can return it
+for `resolved_id` to read.
+
+**resolve_mailbox now on L1.** `cli/resolve.rs` calls `ctx.jmap.mailbox_get(...)` directly
+(was `Mailbox/get` via `ListMailboxes`), maps the faithful `Mailbox` list to `Value`s, and
+runs the same find-by-id/role/name resolution unchanged — its 13 tests stay green, output
+behavior-identical. **Dedup against `actions::find_mailbox_id_by_{role,name}` is DEFERRED
+to step 3** (the CLI resolver is the superset; collapse the action helpers into it when
+`resolve_mailbox` moves to lib sugar — Phase B finding #4).
+
+Byte-identity: held (all 20 goldens green through the move). `serde_json::Value` is
+BTreeMap-backed (no `preserve_order`), so the faithful-`Mailbox` round-trip serializes
+keys alphabetically, identical to the prior raw-`Value` projection — same finding as
+Email/Identity/Vacation.
+
+Verify gate green: `cargo test` (38 lib + 174 bin + doctests), `cargo clippy
+--all-targets`, `cargo fmt --check` (exit 0) all pass. **Each commit independently builds
+under `#![deny(warnings)]`** — golden commit re-verified standalone in a throwaway
+worktree (33 lib + 173 bin green, clippy/fmt clean); migration commit lands helper + first
+use
+together.
+
+`actions::project_fields*` still live (masked_email/contact use them); delete path
 unchanged (after all five migrate).
