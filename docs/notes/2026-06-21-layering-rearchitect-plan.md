@@ -294,3 +294,132 @@ Wire-change note (not a finding): the list/search read is now **two separate** r
 back-referenced `Email/get`. Faithful + intended (each L1 accessor is one call); output
 byte-identical; covered by `mock_query_then_get` (two distinct method mocks). The
 `jmap.md:25-35` back-reference example is a general JMAP illustration, still valid as such.
+
+## Phase B audit (2026-06-25) — module-graph architecture
+
+Scope: the whole module graph (`jmap/`, `actions/`, `cli/`, `mcp/`, `present.rs`,
+`lib.rs`, `main.rs`, `testutil/`), broader than the Email diff. **Verdict: the graph is
+clean of violations.** Email is a faithful pattern slice (L1 accessors + typed sets + an
+L3 presenter owning projection, golden-pinned both front-ends). The remaining work is
+*propagation*, not repair: the other five resources still fuse L0+L3 in `actions/*`,
+exactly as the diagnosis predicted. **Verify gate green at audit start** (`cargo test`
+178 unit + 27 doctests, `cargo clippy --all-targets`, `cargo fmt --check` all pass on exit
+code). **No inline fixes applied** — every finding below is a multi-file slice that must go
+through a golden-net-first migration, none qualifies as a low-risk inline cleanup.
+
+### Per-resource layering map (loose `Value` → faithful type | projection → L3)
+
+The five unmigrated resources, by ascending migration cost — this IS the recommended order:
+
+| # | Resource     | L0 call site (today)                       | What's loose `Value`            | Projection to move to L3                     | Invented noun / wrapper        | Byte-identical risk |
+|---|--------------|--------------------------------------------|----------------------------------|----------------------------------------------|--------------------------------|---------------------|
+| 1 | **identity** | `call_one Identity/get` (`identity.rs:22`) | whole list                       | `LIST_FIELDS` (id,name,email,replyTo)        | none                           | low — list only, 1 tool, no `{success}` wrapper |
+| 2 | **vacation** | `call_one VacationResponse/{get,set}`      | singleton get + update patch     | `GET_FIELDS` (6 fields)                       | `FieldChange` (Leave/Clear/Set) | low — singleton; `{success:true}` on set |
+| 3 | **mailbox**  | `call_one Mailbox/{get,set}` (`mailbox.rs`)| list + create/rename/delete      | `LIST_FIELDS` (6) + role filter              | `{success:true}`/`{mailboxId}` | medium — feeds `resolve_mailbox`; role filter must stay |
+| 4 | **masked_email** | `call_one MaskedEmail/{get,set}`       | list + created object            | `LIST_FIELDS` (6) + **asymmetric** `CREATE_FIELDS` (id,email) + state filter | `{success:true}` | medium — create projection drops state/forDomain/desc/createdAt (field-loss item) |
+| 5 | **contact**  | `call Contact{Card/query→get}` + `ContactCard/set` | JSContact ContactCard          | `From<WireCard>` flatten + `AB_LIST_FIELDS`  | flat `Contact`, `ContactContext`, `ContactEmail`/`Phone`, `{contactId}`/`{success}` | **high** — the lossy JSContact flatten is the most invasive projection; ~20 JSContact fields dropped |
+
+L1 accessors to stand up (JMAP names 1:1, `#[serde(flatten)] rest`, newtype ids):
+`identity_get` → `Identity` + `IdentityId`; `vacation_get`/`vacation_set` → `VacationResponse`
+(singleton); `mailbox_get`/`mailbox_set` → `Mailbox` + `MailboxId` + `MailboxSetResponse`;
+`masked_email_get`/`masked_email_set` → `MaskedEmail` + `MaskedEmailId`; `contact_query`/
+`contact_get`/`contact_set` + `address_book_get` → `ContactCard` (faithful JSContact) +
+`ContactId`/`AddressBookId`. Each returns faithful data; the action returns it verbatim;
+projection moves to a per-resource `present.rs` function applied in CLI + MCP behind a
+golden captured FIRST.
+
+### Propagation roadmap (the next rounds of slices)
+
+**Order: identity → vacation → mailbox → masked_email → contact** (simplest/highest-leverage
+first; contact last because its JSContact flatten is the deepest projection and carries the
+most byte-identical risk). Rationale: identity/vacation are single-tool / singleton with
+trivial projection and prove the shared scaffolding cheaply; mailbox unblocks moving
+`resolve_mailbox` to lib sugar (step 3); masked_email's asymmetric create projection is a
+self-contained field-loss fix; contact is the big one, done once the pattern is hardened.
+
+**Shared L3/present scaffolding to factor out FIRST (one slice, before resource #1)** so it
+isn't re-invented per resource:
+- **`present::project_list(value, fields)`** — the generic list/object field-selection
+  helper. This is `project_fields`/`project_fields_array` relocated from `actions/mod.rs`
+  into `present.rs` as L3 (where field selection belongs per the audit map). identity,
+  vacation, mailbox, masked_email all project by a static `&[&str]` — they share this one
+  helper; only contact needs a bespoke flatten. The relocation is the deletion path for
+  `project_fields*` from the data layer.
+- **`present::set_success(id_field, id)` / `present::set_ok()`** — the `{success:true}` /
+  `{xId: ...}` MCP-wrapper shapes, owned by L3 instead of returned from the action. Both
+  front-ends call them after the typed `*_set` accessor returns.
+- **Per-resource golden helpers** mirroring `mcp/handler.rs` `tool_call_text` + the CLI
+  `Io::capturing` seam — already exist; reuse, don't duplicate. Each resource gets a CLI
+  `--json` golden + an MCP `text` golden, captured against the still-projecting code, kept
+  green through the move (the proven Email recipe).
+
+**Where the lib/bin dep-inversion (#1 below) resolves in the sequence:** at **step 3**, when
+the actions move from `[bin]` into lib sugar. The fix is to invert the property/body-fetch
+contract — the CLI/MCP caller passes `properties` + `BodyFetch` *into* the L1 accessor,
+rather than the action reaching up into `present`. Do this as the *first* lib-sugar slice
+(it's Email-only today: `actions/email.rs:57-58,379`), before any resource's action moves to
+lib, so the inversion never compounds across resources.
+
+### Ranked architecture findings (all forward-looking slices; none inline)
+
+1. **[high leverage] Five resources fuse L0+L3 — propagate the Email pattern.** Per the map
+   above. Each is its own slice (golden-first → L1 accessor → faithful action → L3 present
+   fn). This is the bulk of the remaining rearchitect. Order: identity, vacation, mailbox,
+   masked_email, contact.
+
+2. **[do first] Factor the shared L3 scaffolding before resource #1.** `present::project_list`
+   (relocate `project_fields*`), `present::set_success`/`set_ok`. Prevents five copies of the
+   wrapper/projection logic. Small slice, unblocks the rest.
+
+3. **[medium] Lib/bin dep inversion (carried from Phase A #1).** `actions/email.rs` imports
+   the bin-side `present` module for its property/body-fetch contract. Harmless while actions
+   are `[bin]`; blocks the lib move. Resolve as the first step-3 lib-sugar slice by passing
+   `properties`/`BodyFetch` into the accessor from the caller. Sequence it *before* any
+   resource action migrates to lib.
+
+4. **[medium] `find_mailbox_id_by_{role,name}` (actions/mod.rs) partially duplicate
+   `resolve.rs`'s `find_by_role`/`find_by_id`/`match_by_name`.** Two mailbox-lookup
+   implementations: the action helpers (exact role/name, used by `email.rs` send/delete and
+   `GetEmails` name-resolve) and the richer CLI resolver (id → role → exact → prefix →
+   substring + disambiguation). When `resolve_mailbox` moves to lib sugar (step 3), the action
+   helpers should collapse into it — the CLI resolver is the superset. Until then, both are
+   live (not dead). Folds into step 3.
+
+5. **[low, cleanup-when-unblocked] `project_fields*` + raw `check_set_errors` delete path.**
+   `project_fields`/`project_fields_array` (`actions/mod.rs:27-51`) are used by all five
+   unmigrated resources — **NOT dead yet**, deletable only after all five migrate (then their
+   logic lives in `present::project_list`). The raw `check_set_errors` (`actions/mod.rs:57`)
+   serves contact + `SendEmail`'s 2-method `Email/set`+`EmailSubmission/set` batch (which goes
+   through `call`, not `email_set`); deletable once contact migrates to a typed `*SetResponse`
+   and `SendEmail`'s draft-create moves onto `email_set`/a typed `EmailSubmission/set`
+   accessor (Phase A #2). The `Action` trait + its `Value` return type retire with the last
+   resource (path step 4).
+
+6. **[low, test gap — carried from Phase A #3/#4] Presenter seam coverage holes.**
+   (a) No `includeBody=false` golden: `project_email_list` still runs `extract_body_content`
+   (synth `date`, drop `bodyValues`) when bodies aren't requested; both list goldens use
+   `includeBody=true`. (b) `BodyFormat::{Text,Html,Both}::body_fetch()` mapping untested — no
+   test asserts `format:html` sends `fetchHTMLBodyValues` (only `all` is pinned, jmap/email.rs).
+   Cheap slices: add a body-less list golden to both front-ends; add a unit test on
+   `BodyFormat::body_fetch` (no mock). Fold into the next Email-adjacent slice.
+
+7. **[note, not a finding] `Io::json` Raw == Json, by stale rationale.** `io.rs:171-176`
+   comments "Raw currently outputs the same as Json since actions already project fields;
+   true raw JMAP pass-through is future work." Post-Email that rationale is now only true for
+   the five unmigrated resources; Email actions return faithful data and the presenter
+   projects. Once all resources migrate, `--raw` *could* emit the faithful pre-projection
+   `Value` (genuinely raw JMAP) — a real feature the rearchitect unlocks. Track as a
+   post-migration enhancement; update the comment when contact lands.
+
+### Module-boundary / simplification read (no findings)
+
+- Import graph is acyclic and sane: `lib` (L0/L1/sugar) ← `bin` (`actions`/`cli`/`mcp`/
+  `present`). The only upward edge is the documented dep-inversion (#3). `present.rs` is
+  correctly bin-side L3; `jmap/` is lib L1; `mcp/handler.rs` + `cli/*` are thin callers.
+- One responsibility per module holds. No over-engineering spotted — the typed
+  `EmailSetResponse`/`BodyFetch`/`Page` and the `EmailEnumerator` sugar each earn their
+  place; nothing to simplify away.
+- `MockJmap` harness is healthy (`handle_method` / `handle_method_matching` /
+  `handle_download`, 121 lines). The httpmock-`:`-substring caveat is already documented
+  (minor carry-forward). No oversized test module needing a split; the biggest
+  (`actions/email.rs` tests ~600 lines) tracks the biggest resource and is well-factored.
