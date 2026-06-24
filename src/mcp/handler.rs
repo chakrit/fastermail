@@ -189,18 +189,20 @@ fn dispatch_tool(
         }
         "get_vacation_response" => {
             let action = vacation::GetVacationResponse;
-            action.run(ctx)
+            let value = action.run(ctx)?;
+            Ok(present::project_vacation(&value))
         }
         "set_vacation_response" => {
             let action = vacation::SetVacationResponse {
                 is_enabled: json::bool_at(args, "/isEnabled"),
-                from_date: vacation::FieldChange::from_arg(args, "fromDate"),
-                to_date: vacation::FieldChange::from_arg(args, "toDate"),
-                subject: vacation::FieldChange::from_arg(args, "subject"),
-                text_body: vacation::FieldChange::from_arg(args, "textBody"),
-                html_body: vacation::FieldChange::from_arg(args, "htmlBody"),
+                from_date: present::FieldChange::from_arg(args, "fromDate"),
+                to_date: present::FieldChange::from_arg(args, "toDate"),
+                subject: present::FieldChange::from_arg(args, "subject"),
+                text_body: present::FieldChange::from_arg(args, "textBody"),
+                html_body: present::FieldChange::from_arg(args, "htmlBody"),
             };
-            action.run(ctx)
+            action.run(ctx)?;
+            Ok(present::set_ok())
         }
         "list_identities" => {
             let action = identity::ListIdentities;

@@ -56,6 +56,101 @@ pub fn project_identity_list(value: &serde_json::Value) -> serde_json::Value {
     project_list(value, IDENTITY_LIST_FIELDS)
 }
 
+/// JMAP `VacationResponse` properties for the get view. The faithful `VacationResponse`
+/// carries the typed `id` too; the view drops it (the singleton id `"singleton"` is
+/// implicit).
+pub const VACATION_FIELDS: &[&str] = &[
+    "isEnabled",
+    "fromDate",
+    "toDate",
+    "subject",
+    "textBody",
+    "htmlBody",
+];
+
+/// Project a faithful `VacationResponse` singleton into the CLI/MCP display shape.
+pub fn project_vacation(value: &serde_json::Value) -> serde_json::Value {
+    project_object(value, VACATION_FIELDS)
+}
+
+/// The `{success: true}` MCP-wrapper shape — an L3 concern, emitted by the front-ends
+/// after a typed `*_set` accessor returns, not from the action itself.
+pub fn set_ok() -> serde_json::Value {
+    serde_json::json!({ "success": true })
+}
+
+/// A field-level change in a vacation update — an L3 input-parsing concern (JMAP has no
+/// such noun). Optional CLI/MCP arguments carry three intents that JMAP expresses in its
+/// `update` patch: omit the key (leave unchanged), write `null` (clear), or write a value
+/// (set). [`build_vacation_update`] turns these into the verbatim JMAP patch the L1
+/// `vacation_set` accessor sends.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub enum FieldChange {
+    /// Field not provided — leave it unchanged (the key is omitted from the patch).
+    #[default]
+    Leave,
+    /// Provided empty/null — clear it (the patch writes JSON null).
+    Clear,
+    /// Provided a value — set it.
+    Set(String),
+}
+
+impl FieldChange {
+    /// From an MCP argument: absent -> Leave; null or empty string -> Clear; else Set.
+    pub fn from_arg(args: &serde_json::Value, key: &str) -> Self {
+        match args.get(key) {
+            None => Self::Leave,
+            Some(v) if v.is_null() => Self::Clear,
+            Some(v) => Self::from_opt(Some(v.as_str().unwrap_or("").to_string())),
+        }
+    }
+
+    /// From a CLI optional argument: None -> Leave; empty -> Clear; else Set.
+    pub fn from_opt(value: Option<String>) -> Self {
+        match value {
+            None => Self::Leave,
+            Some(s) if s.is_empty() => Self::Clear,
+            Some(s) => Self::Set(s),
+        }
+    }
+
+    /// The JSON to write into the update patch, or None to omit the field.
+    fn patch_value(&self) -> Option<serde_json::Value> {
+        match self {
+            Self::Leave => None,
+            Self::Clear => Some(serde_json::Value::Null),
+            Self::Set(s) => Some(serde_json::json!(s)),
+        }
+    }
+}
+
+/// Build the verbatim JMAP `VacationResponse/set` patch from the parsed inputs. `isEnabled`
+/// is always written; each optional field is included per its [`FieldChange`]. The
+/// resulting object is what the L1 `vacation_set` accessor sends under `"singleton"`.
+pub fn build_vacation_update(
+    is_enabled: bool,
+    from_date: &FieldChange,
+    to_date: &FieldChange,
+    subject: &FieldChange,
+    text_body: &FieldChange,
+    html_body: &FieldChange,
+) -> serde_json::Value {
+    let mut update = serde_json::json!({ "isEnabled": is_enabled });
+    let fields = [
+        ("fromDate", from_date),
+        ("toDate", to_date),
+        ("subject", subject),
+        ("textBody", text_body),
+        ("htmlBody", html_body),
+    ];
+    for (key, change) in fields {
+        if let Some(value) = change.patch_value() {
+            update[key] = value;
+        }
+    }
+    update
+}
+
 /// JMAP `Email` properties for a list/search row.
 pub const EMAIL_LIST_PROPERTIES: &[&str] =
     &["id", "subject", "from", "to", "receivedAt", "preview"];
@@ -253,6 +348,90 @@ mod tests {
         assert_eq!(project_list(&obj, &["id"]), json!({ "id": "x" }));
         // A non-array, non-object value passes through unchanged.
         assert_eq!(project_list(&json!("hi"), &["id"]), json!("hi"));
+    }
+
+    #[test]
+    fn project_vacation_drops_id_and_extras() {
+        let faithful = json!({
+            "id": "singleton",
+            "isEnabled": true,
+            "fromDate": "2026-01-01T00:00:00Z",
+            "toDate": "2026-01-15T00:00:00Z",
+            "subject": "OOO",
+            "textBody": "Away",
+            "htmlBody": "<p>Away</p>"
+        });
+        let projected = project_vacation(&faithful);
+        assert_eq!(
+            projected,
+            json!({
+                "isEnabled": true,
+                "fromDate": "2026-01-01T00:00:00Z",
+                "toDate": "2026-01-15T00:00:00Z",
+                "subject": "OOO",
+                "textBody": "Away",
+                "htmlBody": "<p>Away</p>"
+            })
+        );
+    }
+
+    #[test]
+    fn field_change_leaves_absent() {
+        let args = json!({"other": "value"});
+        assert_eq!(FieldChange::from_arg(&args, "fromDate"), FieldChange::Leave);
+    }
+
+    #[test]
+    fn field_change_clears_on_null() {
+        let args = json!({"fromDate": null});
+        assert_eq!(FieldChange::from_arg(&args, "fromDate"), FieldChange::Clear);
+    }
+
+    #[test]
+    fn field_change_clears_on_empty_string() {
+        let args = json!({"subject": ""});
+        assert_eq!(FieldChange::from_arg(&args, "subject"), FieldChange::Clear);
+    }
+
+    #[test]
+    fn field_change_sets_non_empty() {
+        let args = json!({"subject": "hello"});
+        assert_eq!(
+            FieldChange::from_arg(&args, "subject"),
+            FieldChange::Set("hello".to_string())
+        );
+    }
+
+    #[test]
+    fn field_change_from_opt() {
+        assert_eq!(FieldChange::from_opt(None), FieldChange::Leave);
+        assert_eq!(
+            FieldChange::from_opt(Some(String::new())),
+            FieldChange::Clear
+        );
+        assert_eq!(
+            FieldChange::from_opt(Some("x".to_string())),
+            FieldChange::Set("x".to_string())
+        );
+    }
+
+    #[test]
+    fn build_vacation_update_omits_clears_and_sets() {
+        let update = build_vacation_update(
+            true,
+            &FieldChange::Leave,
+            &FieldChange::Clear,
+            &FieldChange::Set("On vacation".to_string()),
+            &FieldChange::Leave,
+            &FieldChange::Leave,
+        );
+        // isEnabled always present; Leave omits the key; Clear writes null; Set writes value.
+        assert_eq!(update["isEnabled"], json!(true));
+        assert!(update.get("fromDate").is_none(), "Leave omits the key");
+        assert_eq!(update["toDate"], json!(null), "Clear writes null");
+        assert_eq!(update["subject"], json!("On vacation"));
+        assert!(update.get("textBody").is_none());
+        assert!(update.get("htmlBody").is_none());
     }
 
     #[test]

@@ -1,15 +1,7 @@
-use crate::actions::{Action, Context, project_fields};
+use crate::actions::{Action, Context};
 use crate::error::Result;
 use crate::mcp::types::Tool;
-
-const GET_FIELDS: &[&str] = &[
-    "isEnabled",
-    "fromDate",
-    "toDate",
-    "subject",
-    "textBody",
-    "htmlBody",
-];
+use crate::present::FieldChange;
 
 pub fn tools() -> Vec<Tool> {
     vec![
@@ -43,61 +35,14 @@ pub fn tools() -> Vec<Tool> {
 pub struct GetVacationResponse;
 
 impl Action for GetVacationResponse {
+    /// Return the faithful `VacationResponse` singleton — every JMAP property verbatim, no
+    /// projection. The CLI/MCP presenters apply `present::project_vacation`. An empty
+    /// account (no singleton in `list`) returns `{}`.
     fn run(&self, ctx: &Context) -> Result<serde_json::Value> {
-        let data = ctx.jmap.call_one(
-            "urn:ietf:params:jmap:vacationresponse",
-            "VacationResponse/get",
-            serde_json::json!({ "accountId": ctx.account_id }),
-        )?;
-
-        let vacation = data
-            .get("list")
-            .and_then(|l| l.as_array())
-            .and_then(|arr| arr.first())
-            .cloned()
-            .unwrap_or_else(|| serde_json::json!({}));
-
-        Ok(project_fields(&vacation, GET_FIELDS))
-    }
-}
-
-/// A field-level change in a vacation update.
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub enum FieldChange {
-    /// Field not provided — leave it unchanged.
-    #[default]
-    Leave,
-    /// Provided empty/null — clear it (set to JSON null).
-    Clear,
-    /// Provided a value — set it.
-    Set(String),
-}
-
-impl FieldChange {
-    /// From an MCP argument: absent -> Leave; null or empty string -> Clear; else Set.
-    pub fn from_arg(args: &serde_json::Value, key: &str) -> Self {
-        match args.get(key) {
-            None => Self::Leave,
-            Some(v) if v.is_null() => Self::Clear,
-            Some(v) => Self::from_opt(Some(v.as_str().unwrap_or("").to_string())),
-        }
-    }
-
-    /// From a CLI optional argument: None -> Leave; empty -> Clear; else Set.
-    pub fn from_opt(value: Option<String>) -> Self {
-        match value {
-            None => Self::Leave,
-            Some(s) if s.is_empty() => Self::Clear,
-            Some(s) => Self::Set(s),
-        }
-    }
-
-    /// The JSON to write into the update patch, or None to omit the field.
-    fn patch_value(&self) -> Option<serde_json::Value> {
-        match self {
-            Self::Leave => None,
-            Self::Clear => Some(serde_json::Value::Null),
-            Self::Set(s) => Some(serde_json::json!(s)),
+        let response = ctx.jmap.vacation_get(&ctx.account_id)?;
+        match response.list.into_iter().next() {
+            Some(vacation) => Ok(serde_json::to_value(vacation)?),
+            None => Ok(serde_json::json!({})),
         }
     }
 }
@@ -118,33 +63,21 @@ impl Action for SetVacationResponse {
             crate::error::Error::InvalidParams("isEnabled is required".to_string())
         })?;
 
-        let mut update = serde_json::json!({ "isEnabled": is_enabled });
+        let update = crate::present::build_vacation_update(
+            is_enabled,
+            &self.from_date,
+            &self.to_date,
+            &self.subject,
+            &self.text_body,
+            &self.html_body,
+        );
 
-        let fields = [
-            ("fromDate", &self.from_date),
-            ("toDate", &self.to_date),
-            ("subject", &self.subject),
-            ("textBody", &self.text_body),
-            ("htmlBody", &self.html_body),
-        ];
-        for (key, change) in fields {
-            if let Some(value) = change.patch_value() {
-                update[key] = value;
-            }
-        }
+        let response = ctx.jmap.vacation_set(&ctx.account_id, update)?;
+        response.check_errors("VacationResponse/set")?;
 
-        let args = serde_json::json!({
-            "accountId": ctx.account_id,
-            "update": { "singleton": update }
-        });
-
-        ctx.jmap.call_one(
-            "urn:ietf:params:jmap:vacationresponse",
-            "VacationResponse/set",
-            args,
-        )?;
-
-        Ok(serde_json::json!({ "success": true }))
+        // Faithful: the server-completed `updated` map. The `{success:true}` wrapper the
+        // front-ends emit is an L3 concern (`present::set_ok`), not the action's output.
+        Ok(serde_json::to_value(response.updated)?)
     }
 }
 
@@ -156,34 +89,35 @@ mod tests {
     use crate::testutil::mock_jmap::{MockJmap, TEST_ACCOUNT_ID};
     use serde_json::json;
 
-    #[test]
-    fn get_vacation_response_returns_projected_fields() {
-        let mock = MockJmap::start();
-        mock.handle_method(
-            "VacationResponse/get",
-            json!({"methodResponses": [["VacationResponse/get", {"list": [{"isEnabled": true, "fromDate": "2026-01-01", "toDate": "2026-01-15", "subject": "OOO", "textBody": "Away", "htmlBody": "<p>Away</p>", "extraField": "ignored"}]}, "call-0"]]}),
-        );
-
+    fn ctx(mock: &MockJmap) -> Context {
         let (client, _) =
             JmapClient::connect_to(&mock.session_url(), "fake-token").expect("session");
-        let ctx = Context {
+        Context {
             jmap: client,
             account_id: TEST_ACCOUNT_ID.to_string(),
             recorder: None,
-        };
+        }
+    }
 
-        let result = GetVacationResponse.run(&ctx).expect("run should succeed");
+    #[test]
+    fn get_vacation_response_returns_faithful_unprojected_data() {
+        let mock = MockJmap::start();
+        mock.handle_method(
+            "VacationResponse/get",
+            json!({"methodResponses": [["VacationResponse/get", {"list": [{"id": "singleton", "isEnabled": true, "fromDate": "2026-01-01", "toDate": "2026-01-15", "subject": "OOO", "textBody": "Away", "htmlBody": "<p>Away</p>"}]}, "call-0"]]}),
+        );
 
+        let result = GetVacationResponse.run(&ctx(&mock)).expect("run");
+
+        // The action no longer projects: the typed `id` and the field the presenter later
+        // drops (`htmlBody`) are still present.
+        assert_eq!(result["id"], "singleton");
         assert_eq!(result["isEnabled"], true);
         assert_eq!(result["fromDate"], "2026-01-01");
         assert_eq!(result["toDate"], "2026-01-15");
         assert_eq!(result["subject"], "OOO");
         assert_eq!(result["textBody"], "Away");
         assert_eq!(result["htmlBody"], "<p>Away</p>");
-        assert!(
-            result.get("extraField").is_none(),
-            "extraField must be excluded"
-        );
     }
 
     #[test]
@@ -194,15 +128,9 @@ mod tests {
             json!({"methodResponses": [["VacationResponse/get", {"list": []}, "call-0"]]}),
         );
 
-        let (client, _) =
-            JmapClient::connect_to(&mock.session_url(), "fake-token").expect("session");
-        let ctx = Context {
-            jmap: client,
-            account_id: TEST_ACCOUNT_ID.to_string(),
-            recorder: None,
-        };
-
-        let result = GetVacationResponse.run(&ctx).expect("run should succeed");
+        let result = GetVacationResponse
+            .run(&ctx(&mock))
+            .expect("run should succeed");
 
         assert_eq!(result, json!({}));
     }
@@ -236,72 +164,33 @@ mod tests {
             json!({"methodResponses": [["VacationResponse/set", {"updated": {"singleton": null}}, "call-0"]]}),
         );
 
-        let (client, _) =
-            JmapClient::connect_to(&mock.session_url(), "fake-token").expect("session");
-        let ctx = Context {
-            jmap: client,
-            account_id: TEST_ACCOUNT_ID.to_string(),
-            recorder: None,
+        let action = SetVacationResponse {
+            is_enabled: Some(true),
+            ..Default::default()
         };
+
+        action.run(&ctx(&mock)).expect("run should succeed");
+    }
+
+    #[test]
+    fn set_vacation_response_surfaces_set_errors() {
+        let mock = MockJmap::start();
+        mock.handle_method(
+            "VacationResponse/set",
+            json!({"methodResponses": [["VacationResponse/set", {"updated": {}, "notUpdated": {"singleton": {"type": "invalidProperties", "description": "bad date"}}}, "call-0"]]}),
+        );
 
         let action = SetVacationResponse {
             is_enabled: Some(true),
             ..Default::default()
         };
 
-        let result = action.run(&ctx).expect("run should succeed");
-        assert_eq!(result["success"], true);
-    }
-
-    #[test]
-    fn set_vacation_response_disables_successfully() {
-        let mock = MockJmap::start();
-        mock.handle_method(
-            "VacationResponse/set",
-            json!({"methodResponses": [["VacationResponse/set", {"updated": {"singleton": null}}, "call-0"]]}),
-        );
-
-        let (client, _) =
-            JmapClient::connect_to(&mock.session_url(), "fake-token").expect("session");
-        let ctx = Context {
-            jmap: client,
-            account_id: TEST_ACCOUNT_ID.to_string(),
-            recorder: None,
-        };
-
-        let action = SetVacationResponse {
-            is_enabled: Some(false),
-            ..Default::default()
-        };
-
-        let result = action.run(&ctx).expect("run should succeed");
-        assert_eq!(result["success"], true);
-    }
-
-    #[test]
-    fn field_change_leaves_absent() {
-        let args = json!({"other": "value"});
-        assert_eq!(FieldChange::from_arg(&args, "fromDate"), FieldChange::Leave);
-    }
-
-    #[test]
-    fn field_change_clears_on_null() {
-        let args = json!({"fromDate": null});
-        assert_eq!(FieldChange::from_arg(&args, "fromDate"), FieldChange::Clear);
-    }
-
-    #[test]
-    fn field_change_clears_on_empty_string() {
-        let args = json!({"subject": ""});
-        assert_eq!(FieldChange::from_arg(&args, "subject"), FieldChange::Clear);
-    }
-
-    #[test]
-    fn field_change_sets_non_empty() {
-        let args = json!({"subject": "hello"});
-        assert_eq!(
-            FieldChange::from_arg(&args, "subject"),
-            FieldChange::Set("hello".to_string())
+        let err = action
+            .run(&ctx(&mock))
+            .expect_err("set error should surface");
+        assert!(
+            err.to_string().contains("bad date"),
+            "error should carry the SetError description: {err}"
         );
     }
 
@@ -313,14 +202,6 @@ mod tests {
             json!({"methodResponses": [["VacationResponse/set", {"updated": {"singleton": null}}, "call-0"]]}),
         );
 
-        let (client, _) =
-            JmapClient::connect_to(&mock.session_url(), "fake-token").expect("session");
-        let ctx = Context {
-            jmap: client,
-            account_id: TEST_ACCOUNT_ID.to_string(),
-            recorder: None,
-        };
-
         let action = SetVacationResponse {
             is_enabled: Some(true),
             from_date: FieldChange::Set("2026-06-01T00:00:00Z".to_string()),
@@ -328,9 +209,9 @@ mod tests {
             text_body: FieldChange::Set("I'm away".to_string()),
             ..Default::default()
         };
-        let result = action
-            .run(&ctx)
+
+        action
+            .run(&ctx(&mock))
             .expect("set with optional fields should succeed");
-        assert_eq!(result["success"], true);
     }
 }

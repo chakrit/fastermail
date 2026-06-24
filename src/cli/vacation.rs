@@ -1,9 +1,10 @@
 use clap::Subcommand;
 
-use crate::actions::vacation::{FieldChange, GetVacationResponse, SetVacationResponse};
+use crate::actions::vacation::{GetVacationResponse, SetVacationResponse};
 use crate::actions::{Action, Context};
 use crate::cli::io::{Io, OutputMode};
 use crate::error::{Error, Result};
+use crate::present::{self, FieldChange};
 
 #[derive(Subcommand)]
 pub enum VacationCommand {
@@ -49,7 +50,7 @@ pub fn run(cmd: VacationCommand, ctx: &Context, io: &Io) -> Result<()> {
             let action = GetVacationResponse;
             let result = action.run(ctx);
             Io::finish_progress(spinner);
-            let value = result?;
+            let value = present::project_vacation(&result?);
 
             if io.mode() != OutputMode::Human {
                 io.json(&value);
@@ -120,7 +121,7 @@ pub fn run(cmd: VacationCommand, ctx: &Context, io: &Io) -> Result<()> {
                 let state = if is_enabled { "enabled" } else { "disabled" };
                 io.done(&format!("Vacation auto-reply {state}"));
             } else {
-                io.json(&serde_json::json!({ "success": true }));
+                io.json(&present::set_ok());
             }
         }
     }
