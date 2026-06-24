@@ -707,24 +707,15 @@ impl Action for MoveEmail {
             );
         }
 
-        let args = serde_json::json!({
-            "accountId": ctx.account_id,
-            "update": update
-        });
+        let resp = ctx.jmap.email_set(
+            &ctx.account_id,
+            None,
+            Some(serde_json::Value::Object(update)),
+            &[],
+        )?;
+        resp.check_errors("Email/set")?;
 
-        let data = ctx
-            .jmap
-            .call_one("urn:ietf:params:jmap:mail", "Email/set", args)?;
-
-        check_set_errors(&data, "Email/set")?;
-
-        let moved = data
-            .get("updated")
-            .and_then(|u| u.as_object())
-            .map(|m| m.len())
-            .unwrap_or(0);
-
-        Ok(serde_json::json!({ "moved": moved }))
+        Ok(serde_json::json!({ "moved": resp.updated.len() }))
     }
 }
 
@@ -740,24 +731,14 @@ impl Action for DeleteEmail {
         }
 
         if self.permanent {
-            let args = serde_json::json!({
-                "accountId": ctx.account_id,
-                "destroy": self.email_ids
-            });
-
-            let data = ctx
-                .jmap
-                .call_one("urn:ietf:params:jmap:mail", "Email/set", args)?;
-
-            check_set_errors(&data, "Email/set")?;
-
-            let deleted = data
-                .get("destroyed")
-                .and_then(|d| d.as_array())
-                .map(|a| a.len())
-                .unwrap_or(0);
-
-            return Ok(serde_json::json!({ "deleted": deleted }));
+            let ids: Vec<EmailId> = self
+                .email_ids
+                .iter()
+                .map(|id| EmailId(id.clone()))
+                .collect();
+            let resp = ctx.jmap.email_set(&ctx.account_id, None, None, &ids)?;
+            resp.check_errors("Email/set")?;
+            return Ok(serde_json::json!({ "deleted": resp.destroyed.len() }));
         }
 
         let trash_id = self.resolve_trash_id(ctx)?;
@@ -772,24 +753,15 @@ impl Action for DeleteEmail {
             );
         }
 
-        let args = serde_json::json!({
-            "accountId": ctx.account_id,
-            "update": update
-        });
+        let resp = ctx.jmap.email_set(
+            &ctx.account_id,
+            None,
+            Some(serde_json::Value::Object(update)),
+            &[],
+        )?;
+        resp.check_errors("Email/set")?;
 
-        let data = ctx
-            .jmap
-            .call_one("urn:ietf:params:jmap:mail", "Email/set", args)?;
-
-        check_set_errors(&data, "Email/set")?;
-
-        let deleted = data
-            .get("updated")
-            .and_then(|u| u.as_object())
-            .map(|m| m.len())
-            .unwrap_or(0);
-
-        Ok(serde_json::json!({ "deleted": deleted }))
+        Ok(serde_json::json!({ "deleted": resp.updated.len() }))
     }
 }
 
@@ -864,24 +836,15 @@ impl Action for FlagEmail {
             );
         }
 
-        let args = serde_json::json!({
-            "accountId": ctx.account_id,
-            "update": update
-        });
+        let resp = ctx.jmap.email_set(
+            &ctx.account_id,
+            None,
+            Some(serde_json::Value::Object(update)),
+            &[],
+        )?;
+        resp.check_errors("Email/set")?;
 
-        let data = ctx
-            .jmap
-            .call_one("urn:ietf:params:jmap:mail", "Email/set", args)?;
-
-        check_set_errors(&data, "Email/set")?;
-
-        let updated = data
-            .get("updated")
-            .and_then(|u| u.as_object())
-            .map(|m| m.len())
-            .unwrap_or(0);
-
-        Ok(serde_json::json!({ "updated": updated }))
+        Ok(serde_json::json!({ "updated": resp.updated.len() }))
     }
 }
 
