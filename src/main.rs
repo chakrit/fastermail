@@ -4,6 +4,7 @@ mod actions;
 mod cli;
 mod config;
 mod mcp;
+mod present;
 
 // Re-export the library's core modules at the crate root so this binary's submodules keep
 // their `crate::error` / `crate::jmap` / `crate::json` / `crate::recorder` paths after the

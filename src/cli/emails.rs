@@ -10,6 +10,7 @@ use crate::cli::io::{Io, OutputMode};
 use crate::cli::resolve::resolve_mailbox;
 use crate::error::Result;
 use crate::jmap::email::{EmailId, State};
+use crate::present;
 
 #[derive(Subcommand)]
 pub enum EmailCommand {
@@ -396,8 +397,14 @@ fn write_bytes(io: &Io, to: Option<&str>, bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
-/// Format an email list (array of email objects) for output.
+/// Format an email list (array of faithful email objects) for output. Projection (body
+/// part resolution, synthetic `date`, dropped `bodyValues`) is applied here in the
+/// presenter; both the JSON emit and the human table render the projected shape.
 fn format_email_list(io: &Io, value: &serde_json::Value) {
+    let mut value = value.clone();
+    present::project_email_list(&mut value);
+    let value = &value;
+
     if io.mode() != OutputMode::Human {
         io.json(value);
         return;
@@ -455,8 +462,13 @@ fn format_email_list(io: &Io, value: &serde_json::Value) {
     }
 }
 
-/// Format a single email body for output.
+/// Format a single faithful email object for output. Projection is applied here in the
+/// presenter; both the JSON emit and the human render read the projected shape.
 fn format_email_body(io: &Io, value: &serde_json::Value) {
+    let mut value = value.clone();
+    present::project_email_body(&mut value);
+    let value = &value;
+
     if io.mode() != OutputMode::Human {
         io.json(value);
         return;
@@ -682,8 +694,13 @@ mod tests {
         mock.handle_method(
             "Email/query",
             serde_json::json!({
+                "methodResponses": [["Email/query", {"ids": ["e001"]}, "call-0"]]
+            }),
+        );
+        mock.handle_method(
+            "Email/get",
+            serde_json::json!({
                 "methodResponses": [
-                    ["Email/query", {"ids": ["e001"]}, "call-0"],
                     ["Email/get", {
                         "list": [{
                             "id": "e001",
@@ -699,7 +716,7 @@ mod tests {
                                 "p2": {"value": "<p>html body</p>"}
                             }
                         }]
-                    }, "call-1"]
+                    }, "call-0"]
                 ]
             }),
         );

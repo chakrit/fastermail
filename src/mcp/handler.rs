@@ -9,6 +9,7 @@ use crate::mcp::types::{
     InitializeParams, InitializeResult, ServerCapabilities, ServerInfo, ToolCallParams,
     ToolCallResult, ToolsCapability, ToolsListResult,
 };
+use crate::present;
 
 pub fn handle_initialize(params: serde_json::Value) -> serde_json::Value {
     let _init: InitializeParams = serde_json::from_value(params).unwrap_or_default();
@@ -118,7 +119,9 @@ fn dispatch_tool(
                 include_body: bool_param(args, "includeBody"),
                 all: false,
             };
-            action.run(ctx)
+            let mut value = action.run(ctx)?;
+            present::project_email_list(&mut value);
+            Ok(value)
         }
         "search_emails" => {
             let action = email::SearchEmails {
@@ -134,14 +137,18 @@ fn dispatch_tool(
                 include_body: bool_param(args, "includeBody"),
                 all: false,
             };
-            action.run(ctx)
+            let mut value = action.run(ctx)?;
+            present::project_email_list(&mut value);
+            Ok(value)
         }
         "get_email_body" => {
             let action = email::GetEmailBody {
                 email_id: str_param(args, "emailId"),
                 format: email::BodyFormat::parse(&str_param(args, "format"))?,
             };
-            action.run(ctx)
+            let mut value = action.run(ctx)?;
+            present::project_email_body(&mut value);
+            Ok(value)
         }
         "send_email" => {
             let action = email::SendEmail {
@@ -662,8 +669,13 @@ mod tests {
         mock.handle_method(
             "Email/query",
             serde_json::json!({
+                "methodResponses": [["Email/query", {"ids": ["e001"]}, "call-0"]]
+            }),
+        );
+        mock.handle_method(
+            "Email/get",
+            serde_json::json!({
                 "methodResponses": [
-                    ["Email/query", {"ids": ["e001"]}, "call-0"],
                     ["Email/get", {
                         "list": [{
                             "id": "e001",
@@ -679,7 +691,7 @@ mod tests {
                                 "p2": {"value": "<p>html body</p>"}
                             }
                         }]
-                    }, "call-1"]
+                    }, "call-0"]
                 ]
             }),
         );

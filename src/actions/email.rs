@@ -2,51 +2,10 @@ use crate::actions::{
     Action, Context, check_set_errors, find_mailbox_id_by_name, find_mailbox_id_by_role,
 };
 use crate::error::{Error, Result};
-use crate::jmap::email::{EmailEnumerator, EmailId, State};
-use crate::jmap::types::back_reference;
+use crate::jmap::email::{BodyFetch, EmailEnumerator, EmailId, Page, State};
 use crate::json;
 use crate::mcp::types::Tool;
-
-/// Extract actual body text from JMAP part-reference objects and bodyValues map.
-/// Transforms `textBody` and `htmlBody` from arrays of part-references into actual content strings,
-/// adds a `date` field from `receivedAt`, and removes the raw `bodyValues` key.
-fn extract_body_content(email: &mut serde_json::Value) {
-    let Some(obj) = email.as_object_mut() else {
-        return;
-    };
-
-    if let Some(received) = obj.get("receivedAt").cloned() {
-        obj.insert("date".to_string(), received);
-    }
-
-    let body_values = obj.get("bodyValues").cloned();
-    for key in ["textBody", "htmlBody"] {
-        if let Some(content) = resolve_body_part(obj.get(key), body_values.as_ref()) {
-            obj.insert(key.to_string(), content);
-        }
-    }
-
-    // Raw bodyValues is an implementation detail consumers don't need.
-    obj.remove("bodyValues");
-}
-
-/// Resolve a `textBody`/`htmlBody` part-reference array to its actual content string
-/// by looking up the first part's `partId` in the `bodyValues` map.
-fn resolve_body_part(
-    body: Option<&serde_json::Value>,
-    body_values: Option<&serde_json::Value>,
-) -> Option<serde_json::Value> {
-    let part_id = body?
-        .as_array()
-        .and_then(|parts| parts.first())
-        .and_then(|first| first.get("partId"))
-        .and_then(|p| p.as_str())?;
-
-    body_values?
-        .get(part_id)
-        .and_then(|v| v.get("value"))
-        .cloned()
-}
+use crate::present;
 
 /// Default max results when the caller leaves `limit` unset (0).
 const DEFAULT_LIMIT: u32 = 20;
@@ -65,35 +24,10 @@ fn address_objects(addrs: &[String]) -> Vec<serde_json::Value> {
         .collect()
 }
 
-/// Build `Email/get` args with the standard list/search properties, adding body
-/// fields when requested. Callers attach the ids reference (`ids` or `#ids`).
-fn email_get_args(account_id: &str, include_body: bool) -> serde_json::Value {
-    let mut args = serde_json::json!({
-        "accountId": account_id,
-        "properties": ["id", "subject", "from", "to", "receivedAt", "preview"]
-    });
-
-    if include_body {
-        args["fetchTextBodyValues"] = serde_json::json!(true);
-        args["fetchHTMLBodyValues"] = serde_json::json!(true);
-        args["properties"] = serde_json::json!([
-            "id",
-            "subject",
-            "from",
-            "to",
-            "receivedAt",
-            "preview",
-            "textBody",
-            "htmlBody",
-            "bodyValues"
-        ]);
-    }
-
-    args
-}
-
-/// Run an `Email/query` → `Email/get` pipeline for a filter, returning the fetched
-/// email list with body content resolved. A `limit` of 0 falls back to `DEFAULT_LIMIT`.
+/// Query one filter window via the L1 `email_query` accessor, then fetch the matching
+/// emails via L1 `email_get`, returning the faithful `Email` list. A `limit` of 0 falls
+/// back to `DEFAULT_LIMIT`. The view's property/body-fetch contract comes from the L3
+/// presenter.
 fn query_and_fetch(
     ctx: &Context,
     filter: serde_json::Value,
@@ -102,68 +36,34 @@ fn query_and_fetch(
 ) -> Result<serde_json::Value> {
     let limit = if limit == 0 { DEFAULT_LIMIT } else { limit };
 
-    let using = vec![
-        "urn:ietf:params:jmap:core".to_string(),
-        "urn:ietf:params:jmap:mail".to_string(),
-    ];
+    let sort = serde_json::json!([{ "property": "receivedAt", "isAscending": false }]);
+    let query = ctx.jmap.email_query(
+        &ctx.account_id,
+        filter,
+        sort,
+        Page::Position { position: 0, limit },
+    )?;
 
-    let query_args = serde_json::json!({
-        "accountId": ctx.account_id,
-        "filter": filter,
-        "sort": [{ "property": "receivedAt", "isAscending": false }],
-        "limit": limit
-    });
-
-    let mut get_args = email_get_args(&ctx.account_id, include_body);
-    get_args["#ids"] = back_reference("call-0", "Email/query", "/ids");
-
-    let method_calls = vec![
-        ("Email/query".to_string(), query_args, "call-0".to_string()),
-        ("Email/get".to_string(), get_args, "call-1".to_string()),
-    ];
-
-    let resp = ctx.jmap.call(using, method_calls)?;
-
-    let mut email_data = resp
-        .method_responses
-        .iter()
-        .find(|(m, _, _)| m == "Email/get")
-        .map(|(_, data, _)| data.get("list").cloned().unwrap_or(serde_json::json!([])))
-        .unwrap_or(serde_json::json!([]));
-
-    if let Some(emails) = email_data.as_array_mut() {
-        for email in emails.iter_mut() {
-            extract_body_content(email);
-        }
-    }
-
-    Ok(email_data)
+    fetch_emails_by_ids(ctx, &query.ids, include_body)
 }
 
-/// `Email/get` a set of ids in batches, resolving body content on each result.
+/// `Email/get` a set of ids in batches via the L1 accessor, returning the faithful
+/// `Email` list. The presenter selects the properties and body-fetch flags.
 fn fetch_emails_by_ids(
     ctx: &Context,
     ids: &[EmailId],
     include_body: bool,
 ) -> Result<serde_json::Value> {
+    let properties = present::email_list_properties(include_body);
+    let body = present::email_list_body_fetch(include_body);
+
     let mut emails = Vec::with_capacity(ids.len());
-
     for chunk in ids.chunks(GET_BATCH) {
-        let chunk_ids: Vec<&str> = chunk.iter().map(EmailId::as_str).collect();
-        let mut get_args = email_get_args(&ctx.account_id, include_body);
-        get_args["ids"] = serde_json::json!(chunk_ids);
-
-        let data = ctx
+        let resp = ctx
             .jmap
-            .call_one("urn:ietf:params:jmap:mail", "Email/get", get_args)?;
-
-        let Some(list) = data.get("list").and_then(|l| l.as_array()) else {
-            continue;
-        };
-        for email in list {
-            let mut email = email.clone();
-            extract_body_content(&mut email);
-            emails.push(email);
+            .email_get(&ctx.account_id, chunk, Some(properties), body)?;
+        for email in resp.list {
+            emails.push(serde_json::to_value(email)?);
         }
     }
 
@@ -442,11 +342,21 @@ impl BodyFormat {
         }
     }
 
-    fn fetch_property(self) -> &'static str {
+    /// The body-value fetch flags this format requires of `Email/get`.
+    fn body_fetch(self) -> BodyFetch {
         match self {
-            Self::Text => "fetchTextBodyValues",
-            Self::Html => "fetchHTMLBodyValues",
-            Self::Both => "fetchAllBodyValues",
+            Self::Text => BodyFetch {
+                text: true,
+                ..Default::default()
+            },
+            Self::Html => BodyFetch {
+                html: true,
+                ..Default::default()
+            },
+            Self::Both => BodyFetch {
+                all: true,
+                ..Default::default()
+            },
         }
     }
 }
@@ -462,27 +372,21 @@ impl Action for GetEmailBody {
             return Err(Error::InvalidParams("emailId is required".to_string()));
         }
 
-        let mut args = serde_json::json!({
-            "accountId": ctx.account_id,
-            "ids": [self.email_id],
-            "properties": ["id", "subject", "from", "to", "receivedAt", "textBody", "htmlBody", "bodyValues"]
-        });
-        args[self.format.fetch_property()] = serde_json::json!(true);
+        let id = EmailId(self.email_id.clone());
+        let resp = ctx.jmap.email_get(
+            &ctx.account_id,
+            std::slice::from_ref(&id),
+            Some(present::EMAIL_BODY_PROPERTIES),
+            self.format.body_fetch(),
+        )?;
 
-        let data = ctx
-            .jmap
-            .call_one("urn:ietf:params:jmap:mail", "Email/get", args)?;
+        let email =
+            resp.list.into_iter().next().ok_or_else(|| {
+                Error::InvalidParams(format!("email not found: {}", self.email_id))
+            })?;
 
-        let mut email = data
-            .get("list")
-            .and_then(|l| l.as_array())
-            .and_then(|arr| arr.first())
-            .cloned()
-            .ok_or_else(|| Error::InvalidParams(format!("email not found: {}", self.email_id)))?;
-
-        extract_body_content(&mut email);
-
-        Ok(email)
+        // Faithful data — the presenter resolves body parts before display.
+        Ok(serde_json::to_value(email)?)
     }
 }
 
@@ -875,13 +779,21 @@ mod tests {
         }
     }
 
-    fn email_query_get_response() -> serde_json::Value {
-        json!({
-            "methodResponses": [
-                ["Email/query", {"ids": ["e001"]}, "call-0"],
-                ["Email/get", {"list": [{"id": "e001", "subject": "Hello"}]}, "call-1"]
-            ]
-        })
+    /// Register the L1 `Email/query` → `Email/get` pair the read actions now make as two
+    /// separate calls: a query window of one id, then its faithful object.
+    fn mock_query_then_get(mock: &MockJmap) {
+        mock.handle_method(
+            "Email/query",
+            json!({
+                "methodResponses": [["Email/query", {"ids": ["e001"]}, "call-0"]]
+            }),
+        );
+        mock.handle_method(
+            "Email/get",
+            json!({
+                "methodResponses": [["Email/get", {"list": [{"id": "e001", "subject": "Hello"}]}, "call-0"]]
+            }),
+        );
     }
 
     #[test]
@@ -906,7 +818,7 @@ mod tests {
     fn get_emails_uses_mailbox_id_directly() {
         let mock = MockJmap::start();
         let ctx = mock_ctx(&mock);
-        mock.handle_method("Email/query", email_query_get_response());
+        mock_query_then_get(&mock);
 
         let action = GetEmails {
             mailbox_id: "mbox-1".to_string(),
@@ -924,7 +836,7 @@ mod tests {
     fn get_emails_defaults_limit_to_20() {
         let mock = MockJmap::start();
         let ctx = mock_ctx(&mock);
-        mock.handle_method("Email/query", email_query_get_response());
+        mock_query_then_get(&mock);
 
         let action = GetEmails {
             mailbox_id: "mbox-1".to_string(),
@@ -1004,7 +916,7 @@ mod tests {
     fn search_emails_builds_keyword_filter() {
         let mock = MockJmap::start();
         let ctx = mock_ctx(&mock);
-        mock.handle_method("Email/query", email_query_get_response());
+        mock_query_then_get(&mock);
 
         let action = SearchEmails {
             keyword: "invoice".to_string(),
@@ -1047,8 +959,11 @@ mod tests {
         assert!(msg.contains("format"), "error should mention format: {msg}");
     }
 
+    /// The action now returns FAITHFUL JMAP data — body part references and the raw
+    /// `bodyValues` map are preserved, NOT projected. Projection moved to the L3
+    /// presenter (see `present::project_email_body` + the CLI/MCP golden tests).
     #[test]
-    fn get_email_body_extracts_body_content() {
+    fn get_email_body_returns_faithful_data() {
         let mock = MockJmap::start();
         let ctx = mock_ctx(&mock);
         mock.handle_method(
@@ -1059,15 +974,9 @@ mod tests {
                         "list": [{
                             "id": "e001",
                             "subject": "Test",
-                            "from": [{"email": "a@b.com"}],
-                            "to": [{"email": "c@d.com"}],
                             "receivedAt": "2026-01-01T00:00:00Z",
                             "textBody": [{"partId": "p1"}],
-                            "htmlBody": [{"partId": "p2"}],
-                            "bodyValues": {
-                                "p1": {"value": "plain text body"},
-                                "p2": {"value": "<p>html body</p>"}
-                            }
+                            "bodyValues": { "p1": {"value": "plain text body"} }
                         }]
                     }, "call-0"]
                 ]
@@ -1079,12 +988,12 @@ mod tests {
             format: BodyFormat::Text,
         };
         let result = action.run(&ctx).expect("get_email_body should succeed");
-        assert_eq!(result["textBody"], "plain text body");
-        assert_eq!(result["htmlBody"], "<p>html body</p>");
-        assert_eq!(result["date"], "2026-01-01T00:00:00Z");
+        // Faithful: part reference intact, bodyValues present, no synthetic `date`.
+        assert_eq!(result["textBody"], json!([{"partId": "p1"}]));
+        assert_eq!(result["bodyValues"]["p1"]["value"], "plain text body");
         assert!(
-            result.get("bodyValues").is_none(),
-            "bodyValues should be removed"
+            result.get("date").is_none(),
+            "action must not synthesize `date` — that is the presenter's job"
         );
     }
 
@@ -1384,7 +1293,7 @@ mod tests {
                 }, "call-0"]]
             }),
         );
-        mock.handle_method("Email/query", email_query_get_response());
+        mock_query_then_get(&mock);
 
         let action = GetEmails {
             mailbox_id: "".into(),
@@ -1431,7 +1340,7 @@ mod tests {
     fn get_emails_uses_mailbox_id_directly_returns_subject() {
         let mock = MockJmap::start();
         let ctx = mock_ctx(&mock);
-        mock.handle_method("Email/query", email_query_get_response());
+        mock_query_then_get(&mock);
 
         let action = GetEmails {
             mailbox_id: "mbox-1".into(),
