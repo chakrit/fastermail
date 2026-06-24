@@ -56,3 +56,91 @@ pub fn run(cmd: IdentityCommand, ctx: &Context, io: &Io) -> Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cli::io::OutputMode;
+    use crate::testutil::mock_jmap::{MockJmap, TEST_ACCOUNT_ID};
+
+    fn mock_ctx(mock: &MockJmap) -> Context {
+        let (client, _) =
+            crate::jmap::client::JmapClient::connect_to(&mock.session_url(), "fake-token")
+                .expect("session connect");
+        Context {
+            jmap: client,
+            account_id: TEST_ACCOUNT_ID.to_string(),
+            recorder: None,
+        }
+    }
+
+    fn captured(buffer: &std::sync::Arc<std::sync::Mutex<Vec<u8>>>) -> String {
+        String::from_utf8(buffer.lock().expect("buffer lock").clone()).expect("utf8 output")
+    }
+
+    // --- Presenter golden test (byte-identity net for CLI --json projection) ---
+    //
+    // In Json mode the CLI emits `io.json(value)` = `to_string_pretty(value)` + newline.
+    // This pins the exact emitted bytes so relocating projection stays byte-identical.
+
+    #[test]
+    fn golden_list_json_projects_fields() {
+        let mock = MockJmap::start();
+        let ctx = mock_ctx(&mock);
+        mock.handle_method(
+            "Identity/get",
+            serde_json::json!({
+                "methodResponses": [["Identity/get", {
+                    "list": [
+                        {
+                            "id": "id1",
+                            "name": "Alice",
+                            "email": "alice@example.com",
+                            "replyTo": null,
+                            "bcc": null,
+                            "textSignature": "sig1",
+                            "htmlSignature": "<p>sig1</p>",
+                            "mayDelete": true
+                        },
+                        {
+                            "id": "id2",
+                            "name": "Bob",
+                            "email": "bob@example.com",
+                            "replyTo": [{"email": "bob-reply@example.com"}],
+                            "bcc": null,
+                            "textSignature": "sig2",
+                            "htmlSignature": "<p>sig2</p>",
+                            "mayDelete": false
+                        }
+                    ]
+                }, "call-0"]]
+            }),
+        );
+
+        let (io, buffer) = Io::capturing(OutputMode::Json);
+        run(IdentityCommand::List, &ctx, &io).expect("list should succeed");
+
+        let expected = serde_json::json!([
+            {
+                "id": "id1",
+                "name": "Alice",
+                "email": "alice@example.com",
+                "replyTo": null
+            },
+            {
+                "id": "id2",
+                "name": "Bob",
+                "email": "bob@example.com",
+                "replyTo": [{"email": "bob-reply@example.com"}]
+            }
+        ]);
+        assert_eq!(
+            captured(&buffer),
+            format!(
+                "{}\n",
+                serde_json::to_string_pretty(&expected).expect("pretty")
+            ),
+            "CLI --json identity list output bytes drifted"
+        );
+    }
+}

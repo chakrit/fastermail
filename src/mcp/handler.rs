@@ -727,4 +727,73 @@ mod tests {
             "MCP list output bytes drifted"
         );
     }
+
+    #[test]
+    fn golden_list_identities_projects_fields() {
+        let mock = crate::testutil::mock_jmap::MockJmap::start();
+        let ctx = mock_ctx(&mock);
+        mock.handle_method(
+            "Identity/get",
+            serde_json::json!({
+                "methodResponses": [["Identity/get", {
+                    "list": [
+                        {
+                            "id": "id1",
+                            "name": "Alice",
+                            "email": "alice@example.com",
+                            "replyTo": null,
+                            "bcc": null,
+                            "textSignature": "sig1",
+                            "htmlSignature": "<p>sig1</p>",
+                            "mayDelete": true
+                        },
+                        {
+                            "id": "id2",
+                            "name": "Bob",
+                            "email": "bob@example.com",
+                            "replyTo": [{"email": "bob-reply@example.com"}],
+                            "bcc": null,
+                            "textSignature": "sig2",
+                            "htmlSignature": "<p>sig2</p>",
+                            "mayDelete": false
+                        }
+                    ]
+                }, "call-0"]]
+            }),
+        );
+
+        let response = handle_tools_call(
+            serde_json::json!({
+                "name": "list_identities",
+                "arguments": {}
+            }),
+            &ctx,
+        );
+
+        let text = tool_call_text(&response);
+        let expected = serde_json::json!([
+            {
+                "id": "id1",
+                "name": "Alice",
+                "email": "alice@example.com",
+                "replyTo": null
+            },
+            {
+                "id": "id2",
+                "name": "Bob",
+                "email": "bob@example.com",
+                "replyTo": [{"email": "bob-reply@example.com"}]
+            }
+        ]);
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&text).expect("text should be JSON"),
+            expected,
+            "projected identity list Value drifted"
+        );
+        assert_eq!(
+            text,
+            serde_json::to_string_pretty(&expected).expect("pretty"),
+            "MCP identity list output bytes drifted"
+        );
+    }
 }
