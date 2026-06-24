@@ -5,9 +5,11 @@ pushed — see the "fork A LANDED" section at the bottom); STEP 2 Identity DONE 
 2026-06-25, committed not pushed — see "Step 2 / Identity — MIGRATED" at the bottom); STEP 2
 Vacation DONE (migrated 2026-06-25, committed not pushed — see "Step 2 / Vacation —
 MIGRATED" at the bottom); STEP 2 Mailbox DONE (migrated 2026-06-25, committed not pushed —
-see "Step 2 / Mailbox — MIGRATED" at the bottom); next: propagate the pattern to
-masked_email, then contact. AUDITED 2026-06-25 (identity/vacation/mailbox batch — clean;
-see "Audit — identity/vacation/mailbox batch" at the bottom).** The
+see "Step 2 / Mailbox — MIGRATED" at the bottom); STEP 2 MaskedEmail DONE (migrated
+2026-06-25, committed not pushed — see "Step 2 / MaskedEmail — MIGRATED" at the bottom);
+the typed `check_errors` triplication is CONSOLIDATED (`a3fb55b` — see below); next + LAST:
+contact (HELD for attended review). AUDITED 2026-06-25 (identity/vacation/mailbox batch —
+clean; see "Audit — identity/vacation/mailbox batch" at the bottom).** The
 three locks were adopted under chakrit's AFK delegation and **confirmed by chakrit** ("all
 good", 2026-06-22). Shipped + **pushed to `gh/main`**: step 1 (lib/bin split, `f049938`);
 `email_state` bootstrap primitive (`af96f9d`); faithful L1 `email_get` + typed `Email`
@@ -759,3 +761,98 @@ cleanup/forward-looking; the only inline fixes are stale-doc.
 Everything else is a forward-looking slice (Phase A #2 the `check_errors` consolidation;
 Phase A #3 the test gaps; Phase B #3 the masked_email/contact migrations). None qualifies as
 a low-risk inline cleanup.
+
+## check_errors consolidation — DONE (2026-06-25, committed, NOT pushed)
+
+Phase A #2 from the identity/vacation/mailbox audit, landed as its own commit before
+masked_email so the triplication stops spreading.
+
+Commit (on `main`, ahead of `gh/main` — awaiting push):
+- `a3fb55b` — extract the byte-identical typed-`check_errors` loop into a single free fn
+  `jmap::check_set_errors(method, not_created, not_updated, not_destroyed) -> Result<()>`
+  in `src/jmap/mod.rs` (scans notCreated → notUpdated → notDestroyed, first
+  description-or-key → `Error::Jmap`). `EmailSetResponse` / `VacationSetResponse` /
+  `MailboxSetResponse` `::check_errors` are now one-line delegators; vacation/mailbox
+  dropped the now-unused `Error` import. masked_email's new `MaskedEmailSetResponse`
+  delegates to it from the start. Call sites in `actions/` are unchanged → byte-identical.
+
+The raw `actions::check_set_errors(&Value)` (contact + `SendEmail`) is **untouched** —
+deletable later per the tracking (after contact migrates to a typed `*SetResponse` AND
+SendEmail's draft-create moves onto a typed set accessor). At that point fold the raw one
+into `jmap::check_set_errors` too — one fn for all four.
+
+## Step 2 / MaskedEmail — MIGRATED (2026-06-25, committed, NOT pushed)
+
+Resource 4/5. masked_email now mirrors the Email/identity/vacation/mailbox shape; **contact
+is the last one** (roadmap order: ~~identity~~ → ~~vacation~~ → ~~mailbox~~ →
+~~masked_email~~ → contact). **contact stays HELD for attended review** (highest
+byte-identical risk: JSContact flatten, ~20 dropped fields).
+
+Commits (on `main`, ahead of `gh/main` — awaiting push):
+- `3833a5a` — presenter golden tests (byte-identity net, captured FIRST against the
+  still-projecting code, kept green through the move). All three operations, both
+  front-ends: MCP `golden_list_masked_emails_projects_fields` /
+  `golden_create_masked_email_projects_id_and_email_only` /
+  `golden_update_masked_email_returns_success` (via `handle_tools_call` → `tool_call_text`);
+  CLI `golden_list_json_projects_fields` / `golden_create_json_projects_id_and_email_only` /
+  `golden_update_json_returns_success` (via `Io::capturing(Json)`, new test module in
+  `cli/masked_emails.rs`). Each pins exact `to_string_pretty` bytes; the list fixtures carry
+  extras (`lastMessageAt`/`url`) and the create fixture's server response carries
+  `state`/`forDomain`/`description`/`createdAt` to prove the asymmetric drop. This commit
+  builds + passes against existing code.
+- `e4812f0` — the migration: faithful L1 `masked_email_get`/`masked_email_set` + typed
+  `MaskedEmail`/`MaskedEmailId`/`MaskedEmailGetResponse`/`MaskedEmailSetResponse`
+  (`src/jmap/masked_email.rs`, `pub mod masked_email;`). `masked_email_get` mirrors
+  `identity_get`; `masked_email_set` mirrors `email_set`/`mailbox_set`;
+  `MaskedEmailSetResponse::check_errors` delegates to `jmap::check_set_errors`. Capability is
+  FastMail's non-urn `https://www.fastmail.com/dev/maskedemail`. Actions return faithful
+  data; projection moved to L3.
+
+**The create asymmetry — PRESERVED exactly via an L3 projection.** `present::
+project_masked_email_create(set_response)` digs the (single) `created` entry out of the
+faithful `MaskedEmail/set` response and projects it to `MASKED_EMAIL_CREATE_FIELDS` =
+`[id, email]` only — the server returns the full created object (state/forDomain/
+description/createdAt), the create view drops all but id+email. Distinct from the fuller
+list view `MASKED_EMAIL_LIST_FIELDS` = `[id, email, forDomain, description, state,
+createdAt]` (`project_masked_email_list`). Both goldens pin the asymmetry.
+
+**State filter + `MaskedEmailState` → L3.** Like mailbox's role filter,
+`project_masked_email_list(value, state: Option<MaskedEmailState>)` owns both field
+selection (generic `project_list`) and the lifecycle-state filter (a view concern; the data
+layer returns the faithful unfiltered list). `MaskedEmailState` (the enum +
+`parse`/`parse_settable`/`label`) relocated from `actions/masked_email.rs` to `present.rs`
+as L3 input-parsing (JMAP has no such noun — it's just the `state` field; the enum
+constrains/labels accepted values), mirroring vacation's `FieldChange`. Update emits
+`present::set_ok()`. The action-level projection/parse assertions were relocated to
+`present` tests.
+
+Byte-identity: held (all 6 goldens green through the move). `serde_json::Value` is
+BTreeMap-backed (no `preserve_order`), so the faithful-`MaskedEmail` round-trip serializes
+keys alphabetically, identical to the prior raw-`Value` projection — same finding as
+Email/identity/vacation/mailbox.
+
+Verify gate green: `cargo test` (43 lib + 181 bin + doctests), `cargo clippy --all-targets`,
+`cargo fmt --check` (exit 0) all pass. **Each of the three commits independently builds
+under `#![deny(warnings)]`** — re-verified standalone in a throwaway worktree
+(`a3fb55b` 38+174; `3833a5a` 38+180; `e4812f0` 43+181; clippy/fmt clean at each).
+
+### Deletable tracking after masked_email (restated)
+
+- `actions::project_fields` + `project_fields_array` (`actions/mod.rs:27-51`): the **only**
+  remaining caller is now `contact.rs` (`project_fields_array` ×1 address-book list) —
+  masked_email no longer uses them. **Deletable the moment contact migrates** (its logic
+  lives in `present::project_list`/`project_object`). masked_email's old `LIST_FIELDS`/
+  `CREATE_FIELDS` consts are gone (moved to `present.rs` as `MASKED_EMAIL_*`).
+- `actions::check_set_errors` (`actions/mod.rs:57`): callers unchanged by this slice —
+  still `contact.rs` (×3) + `SendEmail` (×2). **Deletable after contact migrates to a typed
+  `*SetResponse` AND SendEmail's draft-create moves onto a typed set accessor**; fold into
+  `jmap::check_set_errors` at that point (the typed triplication is already consolidated by
+  `a3fb55b`).
+- `actions::find_mailbox_id_by_{role,name}` (`actions/mod.rs:83-101`): unchanged — still
+  `actions/email.rs` send/delete; deletable at the step-3 `resolve_mailbox` → lib-sugar move.
+- The `Action` trait + its `Value` return type: retires with contact (the last resource,
+  path step 4).
+
+**Net after this slice: only contact remains in step 2.** It's the last resource fusing
+L0+L3, and the only remaining caller of both `project_fields*` and (alongside SendEmail)
+`check_set_errors`. Held for attended review.
