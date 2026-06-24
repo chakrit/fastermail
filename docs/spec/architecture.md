@@ -17,11 +17,14 @@ fastermail/
 │   ├── logging.rs           # [lib] Leveled stderr logging (FASTERMAIL_LOG) + log_* macros
 │   ├── recorder.rs          # [lib] Request/response recording for test data capture
 │   ├── config.rs            # [bin] Token resolution (env var → ~/.config/fastermail/config.toml)
-│   ├── present.rs           # [bin] L3 Email presenters: view property lists + projection (CLI+MCP share)
+│   ├── present.rs           # [bin] L3 presenters: field selection + projection + set wrappers (CLI+MCP share)
 │   ├── jmap/                # [lib] L0 transport + L1 typed JMAP accessors
 │   │   ├── mod.rs           # JMAP module root
 │   │   ├── client.rs        # HTTP client, session, call/call_one, blob download
-│   │   ├── email.rs         # L1 Email accessors (get/query/changes/state/blob) + EmailEnumerator
+│   │   ├── email.rs         # L1 Email accessors (get/query/changes/state/blob/set) + EmailEnumerator
+│   │   ├── identity.rs      # L1 Identity accessor (get) + faithful Identity
+│   │   ├── mailbox.rs       # L1 Mailbox accessors (get/set) + faithful Mailbox
+│   │   ├── vacation.rs      # L1 VacationResponse accessors (get/set) + faithful VacationResponse
 │   │   └── types.rs         # JMAP request/response/session types, BlobId, back_reference
 │   ├── testutil/            # [lib] MockJmap harness — gated behind the `testutil` feature
 │   │   └── mock_jmap.rs     #   (httpmock-based; enabled for tests via a self dev-dependency)
@@ -40,7 +43,7 @@ fastermail/
 │   │   ├── vacation.rs      # Vacation subcommands
 │   │   ├── masked_emails.rs # Masked email subcommands
 │   │   └── contacts.rs      # Contact subcommands
-│   └── actions/             # [bin] Unit-of-work structs (Action trait): JMAP calls (+ projection, pre-Email-migration)
+│   └── actions/             # [bin] Unit-of-work structs (Action trait): JMAP calls (+ projection in unmigrated resources)
 │       ├── mod.rs           # Action trait + registry + Context
 │       ├── email.rs         # Email action structs
 │       ├── mailbox.rs       # Mailbox action structs
@@ -52,10 +55,11 @@ fastermail/
 
 `[lib]` modules form the `fastermail` library (L0 transport + L1 JMAP accessors); `[bin]`
 modules are the `fm` binary and MCP server — thin L3 callers that depend on the library.
-This split is step 1 of the layering rearchitect. Email's read projection has migrated to
-the L3 `present.rs` presenter (shared by CLI + MCP); the other five resources still project
-in `actions/` and migrate in later steps (see
-`docs/notes/2026-06-21-layering-rearchitect-plan.md`).
+This split is step 1 of the layering rearchitect. Email, identity, vacation, and mailbox
+have migrated: faithful L1 accessors in `jmap/`, faithful data from the action, and
+projection in the L3 `present.rs` presenter (shared by CLI + MCP). The remaining two
+resources (masked_email, contact) still project in `actions/` and migrate in later steps
+(see `docs/notes/2026-06-21-layering-rearchitect-plan.md`).
 
 Calendars are out of scope — FastMail exposes no `jmap:calendars` capability (CalDAV only).
 

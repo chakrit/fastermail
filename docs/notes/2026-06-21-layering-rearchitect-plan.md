@@ -6,7 +6,8 @@ pushed — see the "fork A LANDED" section at the bottom); STEP 2 Identity DONE 
 Vacation DONE (migrated 2026-06-25, committed not pushed — see "Step 2 / Vacation —
 MIGRATED" at the bottom); STEP 2 Mailbox DONE (migrated 2026-06-25, committed not pushed —
 see "Step 2 / Mailbox — MIGRATED" at the bottom); next: propagate the pattern to
-masked_email, then contact.** The
+masked_email, then contact. AUDITED 2026-06-25 (identity/vacation/mailbox batch — clean;
+see "Audit — identity/vacation/mailbox batch" at the bottom).** The
 three locks were adopted under chakrit's AFK delegation and **confirmed by chakrit** ("all
 good", 2026-06-22). Shipped + **pushed to `gh/main`**: step 1 (lib/bin split, `f049938`);
 `email_state` bootstrap primitive (`af96f9d`); faithful L1 `email_get` + typed `Email`
@@ -621,3 +622,140 @@ together.
 
 `actions::project_fields*` still live (masked_email/contact use them); delete path
 unchanged (after all five migrate).
+
+## Audit — identity/vacation/mailbox batch (2026-06-25)
+
+Scope: the 3-resource migration batch since the Email-batch audit (`8f1d3d8`/`0658b4b`) —
+commits `21a5e86..HEAD` (`2875830`), i.e. identity/vacation/mailbox migrated to faithful-L1
++ L3 `present.rs`, plus the growth of `src/present.rs` and `src/jmap/{identity,vacation,
+mailbox}.rs`. **Verify gate green at audit start:** `cargo test` (38 lib + 174 bin +
+doctests, all pass), `cargo clippy --all-targets` clean, `cargo fmt --check` exit 0.
+
+**Verdict: clean batch.** Layering, correctness, and byte-identity all hold. Each resource
+faithfully mirrors the Email pattern (L1 accessor with newtype id + `#[serde(flatten)]
+rest` + `check_errors` on the `*SetResponse`; faithful action; L3 `present::` projection +
+set wrappers; CLI + MCP both route through `present::`, no per-resource divergent copy).
+The goldens genuinely pin exact `to_string_pretty` bytes for both front-ends incl. the
+dropped fields and the set-wrapper asymmetries (mailbox MCP create/rename/delete →
+`{success,mailboxId}`; CLI rename/delete → bare `{success}` via `set_ok`) — confirmed not
+smoke (each fixture carries the projected-out fields and asserts they're gone). Findings are
+cleanup/forward-looking; the only inline fixes are stale-doc.
+
+### Phase A — code-quality findings (ranked)
+
+1. **[DONE inline this audit] `docs/spec/architecture.md` stale post-3-migrations.** Said
+   "Email's read projection has migrated … the other five resources still project"; only
+   masked_email + contact remain. The `jmap/` file tree listed only `email.rs` (missing the
+   3 new L1 modules); `present.rs` was tagged "Email presenters"; `actions/` was tagged
+   "pre-Email-migration". Fixed all four: added the 3 `jmap/` modules, retagged `present.rs`
+   (field selection + projection + set wrappers) and `actions/` (projection in *unmigrated*
+   resources), and updated the narrative to "Email, identity, vacation, mailbox migrated;
+   masked_email + contact remain".
+
+2. **[medium, DRY — introduced by this batch] `check_errors` triplicated across L1 set
+   responses.** `EmailSetResponse::check_errors` (`jmap/email.rs:139`),
+   `VacationSetResponse::check_errors` (`jmap/vacation.rs:66`), and
+   `MailboxSetResponse::check_errors` (`jmap/mailbox.rs:70`) are **byte-identical** loops —
+   same `[notCreated, notUpdated, notDestroyed]` scan, same first-description-wins,
+   same `Error::Jmap { method, message }`. They differ only in *which struct's* `not_*`
+   fields they read. Plus the raw `actions::check_set_errors` (`actions/mod.rs:57`) is a
+   fourth near-copy over a loose `Value` (serves contact + `SendEmail`). **NOT an inline fix
+   per general-coding "never DRY across module boundaries" — extracting into one of the
+   three `jmap/*` modules is wrong; the shared home is a free fn in `jmap/mod.rs`.** **Fix
+   (slice):** add `jmap::check_set_errors(not_created, not_updated, not_destroyed, method) ->
+   Result<()>` (taking the three `&Map<String,Value>`), have all three typed `check_errors`
+   delegate to it, and collapse the raw `actions::check_set_errors` onto it once contact +
+   SendEmail migrate (intersects the Phase A #2 / Phase B #5 deletion path — do it there).
+   Each new resource that adds a `*SetResponse` (masked_email, contact) inherits the copy
+   until this lands, so do it before/with masked_email to stop the spread.
+
+3. **[out-of-scope, carried — test gap] No `includeBody=false` list golden + untested
+   `BodyFormat::body_fetch`.** Unchanged from the Email audit (Phase A #3/#4 there); the
+   3-resource batch didn't touch it. Still open. Cheap slices: a body-less list golden on
+   both front-ends; a unit test on `BodyFormat::{Text,Html,Both}::body_fetch()` (no mock).
+
+### Phase B — architecture findings (ranked)
+
+1. **[clean — present.rs cohesion] No drift; consistent per-resource shape.** `present.rs`
+   is the coherent L3 home: generic `project_object`/`project_list` + `set_ok`/`set_with_id`
+   at top, then one block per resource (a `<RES>_LIST_FIELDS`/`<RES>_FIELDS` const + a thin
+   `project_<res>` wrapper over the generic helper). identity/vacation/mailbox all follow it;
+   only `project_mailbox_list` carries extra logic (the role filter), justified — the filter
+   is a view concern and has nowhere better to live. `FieldChange` + `build_vacation_update`
+   are correctly L3 input-parsing (JMAP has no such noun; relocated out of the data layer).
+   **No over-generalization, no near-duplicate wrappers to merge.** The one genuine
+   generalization opportunity is `set_with_id` vs `set_ok` — but they encode the two distinct
+   prior wire shapes (`{success}` vs `{success,id}`) the goldens pin, so keeping both is
+   correct, not duplication.
+
+2. **[clean — consistency across the 4 migrated resources] Uniform.** Same L1 shape
+   (`<Res>Id` newtype + `<Res>` faithful flatten + `<Res>GetResponse`/`<Res>SetResponse`),
+   same `call_one` accessor, same `check_errors` (the triplication of Phase A #2 is the *cost*
+   of this uniformity), same golden-test structure (CLI `Io::capturing(Json)` + MCP
+   `tool_call_text`, fixture carries dropped fields). No resource diverges without reason.
+   Vacation correctly omits create/destroy (singleton); identity correctly has no `*_set`
+   (no mutation tool). Mailbox `mailbox_set` mirrors `email_set` (create/update/destroy in
+   one call). Nothing to flag.
+
+3. **[high leverage — propagation] Two resources remain: masked_email, then contact.**
+   Unchanged from the Phase B roadmap. masked_email still fuses L0+L3 (`actions/masked_email
+   .rs`: direct `call_one`, `project_fields`/`project_fields_array` with `LIST_FIELDS` +
+   asymmetric `CREATE_FIELDS`, state filter, raw `{success}` wrapper); contact is the big one
+   (JSContact flatten, held for attended review). Each: golden-first → L1 accessor → faithful
+   action → `present::project_<res>`. masked_email reuses `present::project_list` +
+   `set_ok`/`set_with_id`; its asymmetric create projection (id,email only — drops
+   state/forDomain/desc/createdAt) is a self-contained field-loss fix to decide at migration.
+
+4. **[medium — lib/bin dep, consistent across the 4] Only Email inverts the edge.** Confirmed
+   the dep-inversion (action importing bin-side `present`) is **NOT spreading**: only
+   `actions/email.rs` reaches up into `present` (`:57-58` property/body-fetch selectors,
+   `:379` `EMAIL_BODY_PROPERTIES`). identity/mailbox actions import `present` only in doc
+   comments; vacation imports `present::FieldChange` + `build_vacation_update` — input-parsing
+   helpers, the *correct* direction for an L3 concern the action assembles (not a read-view
+   property contract). So the only true upward edge to resolve at step 3 is still Email's.
+   Tracked; resolve as the first lib-sugar slice (pass `properties`/`BodyFetch` into the
+   accessor from the caller) before any action migrates to lib.
+
+5. **[low — deferred-cleanup tracking, made precise] What becomes deletable, and when.**
+   - `actions::project_fields` + `project_fields_array` (`actions/mod.rs:27-51`): callers are
+     now **only** `masked_email.rs` (`project_fields_array` ×2 list, `project_fields` ×1
+     create) and `contact.rs` (`project_fields_array` ×1 address-book list). **Deletable after
+     BOTH masked_email AND contact migrate** (then their logic lives in
+     `present::project_list`/`project_object`).
+   - `actions::find_mailbox_id_by_role` + `find_mailbox_id_by_name` (`actions/mod.rs:83-101`):
+     callers are now **only** `actions/email.rs` (`:228` send name-resolve via `_by_name`;
+     `:683` delete-to-trash via `_by_role`). `cli/resolve.rs` no longer uses them (it's L1-
+     routed via `mailbox_get` + its own superset resolver). **Deletable after the
+     `resolve_mailbox` → lib-sugar move (step 3)** collapses email.rs's two call sites onto
+     the superset resolver. Independent of masked_email/contact.
+   - `actions::check_set_errors` (`actions/mod.rs:57`): callers are now **only**
+     `actions/contact.rs` (×3) + `actions/email.rs` `SendEmail` (×2: `Email/set` +
+     `EmailSubmission/set`, which go through `call`, not `email_set`). **Deletable after
+     contact migrates to a typed `*SetResponse` AND SendEmail's draft-create moves onto
+     `email_set`/a typed `EmailSubmission/set` accessor** (Phase A #2 from the Email audit).
+     The Phase A #2 above (consolidate the *typed* triplication) should fold the raw one in at
+     that point — one `jmap::check_set_errors` free fn serves all four.
+   - The `Action` trait + its `Value` return type (`actions/mod.rs:21-24`): retires with the
+     last resource (path step 4), once nothing returns a pre-shaped `Value`.
+   - **After masked_email migrates:** nothing yet *fully* deletable on its own —
+     `project_fields*` still has contact as a caller, `check_set_errors` still has
+     contact+SendEmail. masked_email's own `LIST_FIELDS`/`CREATE_FIELDS` consts move to
+     `present.rs` as `MASKED_EMAIL_*`.
+   - **After contact migrates (last resource):** `project_fields` + `project_fields_array`
+     become dead → delete. `check_set_errors` loses its contact callers but SendEmail still
+     holds it → delete only after SendEmail's set-path migration (Phase A #2). Then the
+     `Action` trait retirement (step 4) is unblocked.
+
+6. **[note — not a finding] `Io::json` Raw == Json rationale now ~2/3 stale.** `io.rs`
+   comments "actions already project fields"; true now only for masked_email + contact.
+   Post-migration, `--raw` could emit the faithful pre-projection `Value`. Unchanged from the
+   prior audit; update the comment when contact lands.
+
+### Inline fixes applied this audit
+
+- `docs/spec/architecture.md` — 4 stale-doc edits (Phase A #1). Low-risk, doc-only; verify
+  gate stays green (no code touched).
+
+Everything else is a forward-looking slice (Phase A #2 the `check_errors` consolidation;
+Phase A #3 the test gaps; Phase B #3 the masked_email/contact migrations). None qualifies as
+a low-risk inline cleanup.
