@@ -204,7 +204,8 @@ fn dispatch_tool(
         }
         "list_identities" => {
             let action = identity::ListIdentities;
-            action.run(ctx)
+            let value = action.run(ctx)?;
+            Ok(present::project_identity_list(&value))
         }
         "list_masked_emails" => {
             let state = match str_param(args, "state").as_str() {

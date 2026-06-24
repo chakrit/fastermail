@@ -5,6 +5,7 @@ use crate::actions::identity::ListIdentities;
 use crate::actions::{Action, Context};
 use crate::cli::io::{Io, OutputMode};
 use crate::error::Result;
+use crate::present;
 
 #[derive(Subcommand)]
 pub enum IdentityCommand {
@@ -19,7 +20,7 @@ pub fn run(cmd: IdentityCommand, ctx: &Context, io: &Io) -> Result<()> {
             let action = ListIdentities;
             let result = action.run(ctx);
             Io::finish_progress(spinner);
-            let value = result?;
+            let value = present::project_identity_list(&result?);
 
             if io.mode() != OutputMode::Human {
                 io.json(&value);
