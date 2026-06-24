@@ -1,6 +1,8 @@
 # Layering rearchitect — audit + plan (2026-06-21)
 
-**Status: STEP 1 DONE; STEP 2 forks CONFIRMED — ready to resume (as of 2026-06-22).** The
+**Status: STEP 1 DONE; STEP 2 Email DONE (both forks landed 2026-06-25, committed not
+pushed — see the "fork A LANDED" section at the bottom); next: propagate the pattern to the
+other five resources.** The
 three locks were adopted under chakrit's AFK delegation and **confirmed by chakrit** ("all
 good", 2026-06-22). Shipped + **pushed to `gh/main`**: step 1 (lib/bin split, `f049938`);
 `email_state` bootstrap primitive (`af96f9d`); faithful L1 `email_get` + typed `Email`
@@ -187,3 +189,48 @@ as the pattern slice for step 2. Multi-session effort, touches nearly every file
 - `shellcheck -o all` flags SC2292 ("prefer `[[ ]]` over `[ ]`"), which contradicts
   `general-coding`'s POSIX-`sh` target. Use the default ruleset and reject SC2292.
   Candidate one-line caveat for general-coding's Shell section via ace-school (not done).
+
+## Step 2 / Email — fork A LANDED (2026-06-25, committed, NOT pushed)
+
+Read-projection relocation complete. Both step-2 Email forks (A read + B write) are
+now done; Email is the finished pattern slice for the other five resources.
+
+Commits (on `main`, ahead of `gh/main` — awaiting push):
+- `889f6a1` — presenter golden tests + `Io` capture seam (the byte-identity net,
+  landed FIRST against the still-projecting code, then kept green through the move).
+- `2e88daa` — L1 `email_get` body-fetch via `BodyFetch { text, html, all }` (maps to
+  `fetchTextBodyValues`/`fetchHTMLBodyValues`/`fetchAllBodyValues`; `default()` = no
+  flags = prior behaviour). Lone non-test caller `email_blob_id` + 2 tests updated.
+- `5602f75` — the relocation: reads route through L1 `email_query`/`EmailEnumerator`
+  + `email_get` and return FAITHFUL `Email` data; projection moved to the presenter.
+
+**Where the shared presenter-projection helper lives: `src/present.rs`** (new bin-side
+L3 module, `mod present;` in `main.rs`). It owns: the view property lists
+(`EMAIL_LIST_PROPERTIES` / `EMAIL_LIST_BODY_PROPERTIES` / `EMAIL_BODY_PROPERTIES` +
+`email_list_properties`/`email_list_body_fetch` selectors) and the projection
+(`project_email_list` / `project_email_body`, wrapping `extract_body_content` +
+`resolve_body_part` moved verbatim out of `actions/email.rs`). Both front-ends call it:
+CLI in `format_email_list`/`format_email_body` (project a clone before JSON-emit /
+human-render); MCP in `dispatch_tool`'s `get_emails`/`search_emails`/`get_email_body`
+arms (project before the handler `to_string_pretty`s the value).
+
+Byte-identity: held. `serde_json::Value` has no `preserve_order`, so it is
+BTreeMap-backed and serializes keys alphabetically regardless of insertion/wire order —
+the raw-`Value` path and the typed-`Email` round-trip produce identical bytes (verified
+empirically). The golden tests assert exact `to_string_pretty` bytes (MCP `text` payload
++ CLI `--json` capture), so a future reorder (e.g. if `preserve_order` were enabled)
+would fail them. The list/search path is now two L1 calls (`email_query` then
+`email_get`) instead of one back-referenced batch; output unchanged.
+
+Test net seam: `Io::capturing(mode) -> (Io, Arc<Mutex<Vec<u8>>>)` captures `data`
+output into a buffer (the `Sink::Buffer` variant is `#[cfg(test)]`, never in release).
+
+**Remains: propagate this pattern to the other five resources** —
+mailbox / identity / masked_email / vacation / contact. Each still fuses L0+L3 in its
+`actions/*` (direct `call_one`, `*_FIELDS` + `project_fields` in the data path,
+`{success:true}`/`{xId}` MCP wrappers, invented nouns like `FieldChange` / flat
+`Contact`). For each: stand up faithful L1 accessors, return faithful data from the
+action, add per-resource projection to `src/present.rs`, applied in CLI + MCP behind a
+golden net captured first. Then steps 3–4 (move `tools()` schemas to MCP, move
+`resolve_mailbox` + parsers to lib sugar, delete `project_fields*` + the
+`Value`-returning `Action` trait once all resources migrate).
