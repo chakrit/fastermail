@@ -1,8 +1,9 @@
 # Layering rearchitect — audit + plan (2026-06-21)
 
 **Status: STEP 1 DONE; STEP 2 Email DONE (both forks landed 2026-06-25, committed not
-pushed — see the "fork A LANDED" section at the bottom); next: propagate the pattern to the
-other five resources.** The
+pushed — see the "fork A LANDED" section at the bottom); STEP 2 Identity DONE (migrated
+2026-06-25, committed not pushed — see "Step 2 / Identity — MIGRATED" at the bottom); next:
+propagate the pattern to vacation, then mailbox / masked_email / contact.** The
 three locks were adopted under chakrit's AFK delegation and **confirmed by chakrit** ("all
 good", 2026-06-22). Shipped + **pushed to `gh/main`**: step 1 (lib/bin split, `f049938`);
 `email_state` bootstrap primitive (`af96f9d`); faithful L1 `email_get` + typed `Email`
@@ -423,3 +424,55 @@ lib, so the inversion never compounds across resources.
   `handle_download`, 121 lines). The httpmock-`:`-substring caveat is already documented
   (minor carry-forward). No oversized test module needing a split; the biggest
   (`actions/email.rs` tests ~600 lines) tracks the biggest resource and is well-factored.
+
+## Step 2 / Identity — MIGRATED (2026-06-25, committed, NOT pushed)
+
+First of the five-resource propagation. Identity now mirrors the Email shape; **vacation
+is next** (the order from the Phase B roadmap: identity → vacation → mailbox →
+masked_email → contact).
+
+Commits (on `main`, ahead of `gh/main` — awaiting push):
+- `21a5e86` — presenter golden tests (the byte-identity net, captured FIRST against the
+  still-projecting code, kept green through the move): MCP
+  `golden_list_identities_projects_fields` (via `handle_tools_call` → `tool_call_text`)
+  and CLI `golden_list_json_projects_fields` (via `Io::capturing(Json)`). Both pin exact
+  `to_string_pretty` bytes; fixtures carry the dropped fields to prove they stay projected
+  out.
+- `aa8e54a` — `present::project_object` + `present::project_list` (the shared L3
+  scaffolding, see below).
+- `0d3ffa8` — the migration: faithful L1 `identity_get` + typed `Identity`/`IdentityId`/
+  `IdentityGetResponse` (`src/jmap/identity.rs`, `pub mod identity;` in `jmap/mod.rs`);
+  `ListIdentities` returns faithful data; projection moved to
+  `present::project_identity_list`, applied in the MCP `list_identities` arm and the CLI
+  `identities list` command.
+
+**No `identity_set`:** identity has no mutation action (only `list_identities` /
+`ListIdentities`). `Identity/set` accessor deferred until a mutation is actually needed.
+
+**Shared L3 `present::` scaffolding now factored (the next slices reuse this):**
+- `present::project_object(value, fields) -> Value` — single object → only the selected
+  keys, in `fields` order; non-object passes through.
+- `present::project_list(value, fields) -> Value` — array → project each element; a single
+  object → project it; otherwise passthrough. **This is the generic helper vacation /
+  mailbox / masked_email reuse** (each projects by a static `&[&str]`; only contact needs
+  a bespoke JSContact flatten). Identity's view is `present::IDENTITY_LIST_FIELDS`
+  (`[id,name,email,replyTo]`) + the thin `project_identity_list` wrapper — copy that
+  shape per resource.
+
+**How `project_fields*` was handled — DUPLICATED-PENDING (not relocated).** The plan
+offered relocating `actions::project_fields`/`project_fields_array` into `present.rs`, but
+they are **still called by the four unmigrated resources** (vacation/mailbox/masked_email
+direct `project_fields_array`; contact via its own path). Relocating now would break them.
+So `present::project_list`/`project_object` are the L3 replacements **added fresh** in
+`present.rs`; the `actions/mod.rs` copies **stay in place** until vacation/mailbox/
+masked_email migrate onto `present::project_list`. **Deletion path:** once those three (and
+contact) no longer call `actions::project_fields*`, delete them from `actions/mod.rs`
+(plan path step 4). Until then, two implementations coexist by design — the L3 one for
+migrated resources, the data-layer one for the rest.
+
+Byte-identity: held (the goldens stay green). `serde_json::Value` is BTreeMap-backed (no
+`preserve_order`) so the faithful-`Identity` round-trip serializes keys alphabetically,
+identical to the prior raw-`Value` projection — same as the Email finding.
+
+Verify gate green: `cargo test` (185 unit across lib+bin + 27 doctests), `cargo clippy
+--all-targets`, `cargo fmt --check` (exit 0) all pass.
