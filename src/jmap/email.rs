@@ -137,23 +137,12 @@ impl EmailSetResponse {
     /// notDestroyed, the order JMAP documents), as `check_set_errors` does for raw
     /// `/set` responses. `Ok(())` when the whole batch succeeded.
     pub fn check_errors(&self, method: &str) -> Result<()> {
-        for (key, map) in [
-            ("notCreated", &self.not_created),
-            ("notUpdated", &self.not_updated),
-            ("notDestroyed", &self.not_destroyed),
-        ] {
-            if let Some(err) = map.values().next() {
-                let desc = err
-                    .get("description")
-                    .and_then(|d| d.as_str())
-                    .unwrap_or(key);
-                return Err(Error::Jmap {
-                    method: method.to_string(),
-                    message: desc.to_string(),
-                });
-            }
-        }
-        Ok(())
+        crate::jmap::check_set_errors(
+            method,
+            &self.not_created,
+            &self.not_updated,
+            &self.not_destroyed,
+        )
     }
 }
 
