@@ -586,6 +586,157 @@ fn truncate(s: &str, max: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testutil::mock_jmap::{MockJmap, TEST_ACCOUNT_ID};
+
+    fn mock_ctx(mock: &MockJmap) -> Context {
+        let (client, _) =
+            crate::jmap::client::JmapClient::connect_to(&mock.session_url(), "fake-token")
+                .expect("session connect");
+        Context {
+            jmap: client,
+            account_id: TEST_ACCOUNT_ID.to_string(),
+            recorder: None,
+        }
+    }
+
+    fn captured(buffer: &std::sync::Arc<std::sync::Mutex<Vec<u8>>>) -> String {
+        String::from_utf8(buffer.lock().expect("buffer lock").clone()).expect("utf8 output")
+    }
+
+    // --- Presenter golden tests (byte-identity net for CLI --json projection) ---
+    //
+    // In Json mode the CLI emits `io.json(value)` = `to_string_pretty(value)` + newline.
+    // These pin the exact emitted bytes so relocating projection stays byte-identical.
+
+    #[test]
+    fn golden_get_json_projects_resolved_body() {
+        let mock = MockJmap::start();
+        let ctx = mock_ctx(&mock);
+        mock.handle_method(
+            "Email/get",
+            serde_json::json!({
+                "methodResponses": [
+                    ["Email/get", {
+                        "list": [{
+                            "id": "e001",
+                            "subject": "Test",
+                            "from": [{"email": "a@b.com"}],
+                            "to": [{"email": "c@d.com"}],
+                            "receivedAt": "2026-01-01T00:00:00Z",
+                            "textBody": [{"partId": "p1"}],
+                            "htmlBody": [{"partId": "p2"}],
+                            "bodyValues": {
+                                "p1": {"value": "plain text body"},
+                                "p2": {"value": "<p>html body</p>"}
+                            }
+                        }]
+                    }, "call-0"]
+                ]
+            }),
+        );
+
+        let (io, buffer) = Io::capturing(OutputMode::Json);
+        run(
+            EmailCommand::Get {
+                email_id: "e001".to_string(),
+                format: "text".to_string(),
+            },
+            &ctx,
+            &io,
+        )
+        .expect("get should succeed");
+
+        let expected = serde_json::json!({
+            "id": "e001",
+            "subject": "Test",
+            "from": [{"email": "a@b.com"}],
+            "to": [{"email": "c@d.com"}],
+            "receivedAt": "2026-01-01T00:00:00Z",
+            "date": "2026-01-01T00:00:00Z",
+            "textBody": "plain text body",
+            "htmlBody": "<p>html body</p>"
+        });
+        assert_eq!(
+            captured(&buffer),
+            format!(
+                "{}\n",
+                serde_json::to_string_pretty(&expected).expect("pretty")
+            ),
+            "CLI --json body output bytes drifted"
+        );
+    }
+
+    #[test]
+    fn golden_list_json_projects_each() {
+        let mock = MockJmap::start();
+        let ctx = mock_ctx(&mock);
+        // resolve_mailbox("mb1") needs the mailbox list to confirm the raw id exists.
+        mock.handle_method(
+            "Mailbox/get",
+            serde_json::json!({
+                "methodResponses": [["Mailbox/get", {
+                    "list": [{"id": "mb1", "name": "Inbox", "role": "inbox"}]
+                }, "call-0"]]
+            }),
+        );
+        mock.handle_method(
+            "Email/query",
+            serde_json::json!({
+                "methodResponses": [
+                    ["Email/query", {"ids": ["e001"]}, "call-0"],
+                    ["Email/get", {
+                        "list": [{
+                            "id": "e001",
+                            "subject": "Hello",
+                            "from": [{"email": "a@b.com"}],
+                            "to": [{"email": "c@d.com"}],
+                            "receivedAt": "2026-01-01T00:00:00Z",
+                            "preview": "Hello there",
+                            "textBody": [{"partId": "p1"}],
+                            "htmlBody": [{"partId": "p2"}],
+                            "bodyValues": {
+                                "p1": {"value": "plain text body"},
+                                "p2": {"value": "<p>html body</p>"}
+                            }
+                        }]
+                    }, "call-1"]
+                ]
+            }),
+        );
+
+        let (io, buffer) = Io::capturing(OutputMode::Json);
+        run(
+            EmailCommand::List {
+                mailbox: Some("mb1".to_string()),
+                limit: 20,
+                all: false,
+                include_body: true,
+            },
+            &ctx,
+            &io,
+        )
+        .expect("list should succeed");
+
+        let expected = serde_json::json!([{
+            "id": "e001",
+            "subject": "Hello",
+            "from": [{"email": "a@b.com"}],
+            "to": [{"email": "c@d.com"}],
+            "receivedAt": "2026-01-01T00:00:00Z",
+            "date": "2026-01-01T00:00:00Z",
+            "preview": "Hello there",
+            "textBody": "plain text body",
+            "htmlBody": "<p>html body</p>"
+        }]);
+        assert_eq!(
+            captured(&buffer),
+            format!(
+                "{}\n",
+                serde_json::to_string_pretty(&expected).expect("pretty")
+            ),
+            "CLI --json list output bytes drifted"
+        );
+    }
 
     #[test]
     fn truncate_handles_multibyte_boundary() {

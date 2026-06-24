@@ -1,5 +1,7 @@
 use std::io::{self, IsTerminal, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(test)]
+use std::sync::{Arc, Mutex};
 
 use console::style;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -58,6 +60,14 @@ impl OutputMode {
     }
 }
 
+/// Where `data` output goes. Production writes to stdout; tests capture into a buffer
+/// so the rendered/JSON bytes are assertable (the presenter layer's only output seam).
+enum Sink {
+    Stdout,
+    #[cfg(test)]
+    Buffer(Arc<Mutex<Vec<u8>>>),
+}
+
 /// Centralized output for CLI commands.
 ///
 /// All user-facing output goes through `Io`. Commands never write directly to
@@ -65,11 +75,27 @@ impl OutputMode {
 /// and `error` produce output.
 pub struct Io {
     mode: OutputMode,
+    sink: Sink,
 }
 
 impl Io {
     pub fn new(mode: OutputMode) -> Self {
-        Self { mode }
+        Self {
+            mode,
+            sink: Sink::Stdout,
+        }
+    }
+
+    /// An `Io` whose `data` output is captured into the returned buffer instead of
+    /// reaching stdout — the seam for asserting presenter (JSON/render) output.
+    #[cfg(test)]
+    pub fn capturing(mode: OutputMode) -> (Self, Arc<Mutex<Vec<u8>>>) {
+        let buffer = Arc::new(Mutex::new(Vec::new()));
+        let io = Self {
+            mode,
+            sink: Sink::Buffer(Arc::clone(&buffer)),
+        };
+        (io, buffer)
     }
 
     pub fn mode(&self) -> OutputMode {
@@ -126,10 +152,19 @@ impl Io {
         }
     }
 
-    /// Print data to stdout (tables in Human mode, JSON in JSON/Raw mode).
+    /// Print data to the sink (tables in Human mode, JSON in JSON/Raw mode).
     pub fn data(&self, msg: &str) {
-        let mut stdout = io::stdout().lock();
-        let _ = writeln!(stdout, "{msg}");
+        match &self.sink {
+            Sink::Stdout => {
+                let mut stdout = io::stdout().lock();
+                let _ = writeln!(stdout, "{msg}");
+            }
+            #[cfg(test)]
+            Sink::Buffer(buffer) => {
+                let mut buffer = buffer.lock().expect("output buffer lock");
+                let _ = writeln!(buffer, "{msg}");
+            }
+        }
     }
 
     /// Serialize a JSON value to stdout (pretty-printed).

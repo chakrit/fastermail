@@ -565,4 +565,154 @@ mod tests {
             recorder: None,
         }
     }
+
+    /// A context wired to a started `MockJmap`, for tests that exercise the full
+    /// dispatch → JMAP → projection path.
+    fn mock_ctx(mock: &crate::testutil::mock_jmap::MockJmap) -> Context {
+        let (client, _) =
+            crate::jmap::client::JmapClient::connect_to(&mock.session_url(), "fake-token")
+                .expect("session connect");
+        Context {
+            jmap: client,
+            account_id: crate::testutil::mock_jmap::TEST_ACCOUNT_ID.to_string(),
+            recorder: None,
+        }
+    }
+
+    /// Extract the projected JSON `text` payload an MCP tool call wraps. This is the
+    /// exact byte string the MCP server emits to the client.
+    fn tool_call_text(response: &serde_json::Value) -> String {
+        response
+            .pointer("/content/0/text")
+            .and_then(|t| t.as_str())
+            .expect("tool result should carry text content")
+            .to_string()
+    }
+
+    // --- Presenter golden tests (byte-identity net for the projection layer) ---
+    //
+    // The MCP server emits `to_string_pretty(projected_value)`. These pin that exact
+    // output — both as a parsed Value (catches a field reorder) and as the raw string
+    // (catches any byte change) — so relocating projection between layers can be proven
+    // byte-identical.
+
+    #[test]
+    fn golden_get_email_body_projects_resolved_body() {
+        let mock = crate::testutil::mock_jmap::MockJmap::start();
+        let ctx = mock_ctx(&mock);
+        mock.handle_method(
+            "Email/get",
+            serde_json::json!({
+                "methodResponses": [
+                    ["Email/get", {
+                        "list": [{
+                            "id": "e001",
+                            "subject": "Test",
+                            "from": [{"email": "a@b.com"}],
+                            "to": [{"email": "c@d.com"}],
+                            "receivedAt": "2026-01-01T00:00:00Z",
+                            "textBody": [{"partId": "p1"}],
+                            "htmlBody": [{"partId": "p2"}],
+                            "bodyValues": {
+                                "p1": {"value": "plain text body"},
+                                "p2": {"value": "<p>html body</p>"}
+                            }
+                        }]
+                    }, "call-0"]
+                ]
+            }),
+        );
+
+        let response = handle_tools_call(
+            serde_json::json!({
+                "name": "get_email_body",
+                "arguments": { "emailId": "e001" }
+            }),
+            &ctx,
+        );
+
+        let text = tool_call_text(&response);
+        let expected = serde_json::json!({
+            "id": "e001",
+            "subject": "Test",
+            "from": [{"email": "a@b.com"}],
+            "to": [{"email": "c@d.com"}],
+            "receivedAt": "2026-01-01T00:00:00Z",
+            "date": "2026-01-01T00:00:00Z",
+            "textBody": "plain text body",
+            "htmlBody": "<p>html body</p>"
+        });
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&text).expect("text should be JSON"),
+            expected,
+            "projected body Value drifted"
+        );
+        // Pin the exact bytes — catches a field reorder or formatting change.
+        assert_eq!(
+            text,
+            serde_json::to_string_pretty(&expected).expect("pretty"),
+            "MCP body output bytes drifted"
+        );
+    }
+
+    #[test]
+    fn golden_get_emails_with_body_projects_each() {
+        let mock = crate::testutil::mock_jmap::MockJmap::start();
+        let ctx = mock_ctx(&mock);
+        mock.handle_method(
+            "Email/query",
+            serde_json::json!({
+                "methodResponses": [
+                    ["Email/query", {"ids": ["e001"]}, "call-0"],
+                    ["Email/get", {
+                        "list": [{
+                            "id": "e001",
+                            "subject": "Hello",
+                            "from": [{"email": "a@b.com"}],
+                            "to": [{"email": "c@d.com"}],
+                            "receivedAt": "2026-01-01T00:00:00Z",
+                            "preview": "Hello there",
+                            "textBody": [{"partId": "p1"}],
+                            "htmlBody": [{"partId": "p2"}],
+                            "bodyValues": {
+                                "p1": {"value": "plain text body"},
+                                "p2": {"value": "<p>html body</p>"}
+                            }
+                        }]
+                    }, "call-1"]
+                ]
+            }),
+        );
+
+        let response = handle_tools_call(
+            serde_json::json!({
+                "name": "get_emails",
+                "arguments": { "mailboxId": "mb1", "includeBody": true }
+            }),
+            &ctx,
+        );
+
+        let text = tool_call_text(&response);
+        let expected = serde_json::json!([{
+            "id": "e001",
+            "subject": "Hello",
+            "from": [{"email": "a@b.com"}],
+            "to": [{"email": "c@d.com"}],
+            "receivedAt": "2026-01-01T00:00:00Z",
+            "date": "2026-01-01T00:00:00Z",
+            "preview": "Hello there",
+            "textBody": "plain text body",
+            "htmlBody": "<p>html body</p>"
+        }]);
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&text).expect("text should be JSON"),
+            expected,
+            "projected list Value drifted"
+        );
+        assert_eq!(
+            text,
+            serde_json::to_string_pretty(&expected).expect("pretty"),
+            "MCP list output bytes drifted"
+        );
+    }
 }
