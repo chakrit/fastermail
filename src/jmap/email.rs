@@ -42,6 +42,17 @@ impl std::fmt::Display for State {
     }
 }
 
+/// Which body-value representations an `Email/get` should resolve inline. Each maps to
+/// the matching JMAP `Email/get` flag (`fetchTextBodyValues`/`fetchHTMLBodyValues`/
+/// `fetchAllBodyValues`); a flag is only sent when set. The default (all `false`) sends
+/// none — JMAP then returns `textBody`/`htmlBody` part references without the values.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct BodyFetch {
+    pub text: bool,
+    pub html: bool,
+    pub all: bool,
+}
+
 /// A window into an `Email/query` result set. JMAP offers two positioning modes:
 /// `Anchor` is skip-proof under concurrent inserts; `Position` is a plain offset.
 pub enum Page {
@@ -206,12 +217,15 @@ impl JmapClient {
 
     /// L1 accessor: a faithful `Email/get` for a set of ids — no projection. Every
     /// property JMAP returns is preserved (typed ids plus [`Email::rest`]). `properties`
-    /// selects which JMAP properties to fetch; `None` returns JMAP's default set.
+    /// selects which JMAP properties to fetch (`None` returns JMAP's default set); `body`
+    /// requests inline body values (see [`BodyFetch`]). [`BodyFetch::default`] sends no
+    /// fetch flags, matching a plain `Email/get`.
     pub fn email_get(
         &self,
         account_id: &str,
         ids: &[EmailId],
         properties: Option<&[&str]>,
+        body: BodyFetch,
     ) -> Result<EmailGetResponse> {
         let id_strs: Vec<&str> = ids.iter().map(EmailId::as_str).collect();
         let mut args = serde_json::json!({
@@ -220,6 +234,15 @@ impl JmapClient {
         });
         if let Some(props) = properties {
             args["properties"] = serde_json::json!(props);
+        }
+        if body.text {
+            args["fetchTextBodyValues"] = serde_json::json!(true);
+        }
+        if body.html {
+            args["fetchHTMLBodyValues"] = serde_json::json!(true);
+        }
+        if body.all {
+            args["fetchAllBodyValues"] = serde_json::json!(true);
         }
 
         let data = self.call_one(MAIL_CAPABILITY, "Email/get", args)?;
@@ -234,6 +257,7 @@ impl JmapClient {
             account_id,
             std::slice::from_ref(email_id),
             Some(&["blobId"]),
+            BodyFetch::default(),
         )?;
         response
             .list
@@ -640,7 +664,12 @@ mod tests {
         );
 
         let resp = client(&mock)
-            .email_get(TEST_ACCOUNT_ID, &[EmailId("e001".into())], None)
+            .email_get(
+                TEST_ACCOUNT_ID,
+                &[EmailId("e001".into())],
+                None,
+                BodyFetch::default(),
+            )
             .expect("email_get");
 
         assert_eq!(resp.list.len(), 1);
@@ -670,10 +699,47 @@ mod tests {
         );
 
         let resp = client(&mock)
-            .email_get(TEST_ACCOUNT_ID, &[EmailId("missing".into())], None)
+            .email_get(
+                TEST_ACCOUNT_ID,
+                &[EmailId("missing".into())],
+                None,
+                BodyFetch::default(),
+            )
             .expect("email_get");
         assert!(resp.list.is_empty());
         assert_eq!(resp.not_found, vec![EmailId("missing".into())]);
+    }
+
+    #[test]
+    fn email_get_emits_body_fetch_flag() {
+        let mock = MockJmap::start();
+        // Only a request whose body carries fetchAllBodyValues is served; if the flag
+        // were dropped, the call would 404 and the parse would fail.
+        mock.handle_method_matching(
+            "Email/get",
+            "fetchAllBodyValues",
+            json!({
+                "methodResponses": [["Email/get", {
+                    "state": "s1",
+                    "list": [{ "id": "e001" }],
+                    "notFound": []
+                }, "call-0"]]
+            }),
+        );
+
+        let resp = client(&mock)
+            .email_get(
+                TEST_ACCOUNT_ID,
+                &[EmailId("e001".into())],
+                None,
+                BodyFetch {
+                    all: true,
+                    ..Default::default()
+                },
+            )
+            .expect("email_get with body fetch");
+        assert_eq!(resp.list.len(), 1);
+        assert_eq!(resp.list[0].id, EmailId("e001".into()));
     }
 
     #[test]
