@@ -104,6 +104,23 @@ pub struct EmailGetResponse {
     pub state: State,
 }
 
+/// Faithful mirror of an `Email/set` response. `created`/`updated` map each id to the
+/// server-completed object (or null); `destroyed` lists the removed ids; each `not_*` map
+/// carries a JMAP `SetError` per id that failed. State tokens bracket the mutation
+/// (`old_state` may be null per JMAP). No projection — every field is preserved verbatim.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct EmailSetResponse {
+    pub old_state: Option<State>,
+    pub new_state: Option<State>,
+    pub created: serde_json::Map<String, serde_json::Value>,
+    pub updated: serde_json::Map<String, serde_json::Value>,
+    pub destroyed: Vec<EmailId>,
+    pub not_created: serde_json::Map<String, serde_json::Value>,
+    pub not_updated: serde_json::Map<String, serde_json::Value>,
+    pub not_destroyed: serde_json::Map<String, serde_json::Value>,
+}
+
 impl JmapClient {
     /// L1 accessor: a single `Email/query` call for one window of results.
     pub fn email_query(
@@ -224,6 +241,34 @@ impl JmapClient {
             })?;
 
         Ok(State(state.to_string()))
+    }
+
+    /// L1 accessor: a faithful single `Email/set` — create, update, and/or destroy in
+    /// one call, no projection. `create`/`update` are JMAP object maps (creation-id →
+    /// email, id → patch); `destroy` lists the ids to remove. The caller builds the JMAP
+    /// payloads verbatim; typed builders are sugar layered on later.
+    pub fn email_set(
+        &self,
+        account_id: &str,
+        create: Option<serde_json::Value>,
+        update: Option<serde_json::Value>,
+        destroy: &[EmailId],
+    ) -> Result<EmailSetResponse> {
+        let mut args = serde_json::json!({ "accountId": account_id });
+        if let Some(create) = create {
+            args["create"] = create;
+        }
+        if let Some(update) = update {
+            args["update"] = update;
+        }
+        if !destroy.is_empty() {
+            let ids: Vec<&str> = destroy.iter().map(EmailId::as_str).collect();
+            args["destroy"] = serde_json::json!(ids);
+        }
+
+        let data = self.call_one(MAIL_CAPABILITY, "Email/set", args)?;
+        let response = serde_json::from_value(data)?;
+        Ok(response)
     }
 }
 
@@ -604,5 +649,65 @@ mod tests {
             .expect("email_get");
         assert!(resp.list.is_empty());
         assert_eq!(resp.not_found, vec![EmailId("missing".into())]);
+    }
+
+    #[test]
+    fn email_set_parses_created_updated_destroyed() {
+        let mock = MockJmap::start();
+        mock.handle_method(
+            "Email/set",
+            json!({
+                "methodResponses": [["Email/set", {
+                    "oldState": "s1",
+                    "newState": "s2",
+                    "created": { "draft": { "id": "e-new", "blobId": "b1" } },
+                    "updated": { "e001": null },
+                    "destroyed": ["e002"]
+                }, "call-0"]]
+            }),
+        );
+
+        let resp = client(&mock)
+            .email_set(
+                TEST_ACCOUNT_ID,
+                Some(json!({ "draft": { "subject": "Hi" } })),
+                Some(json!({ "e001": { "keywords/$seen": true } })),
+                &[EmailId("e002".into())],
+            )
+            .expect("email_set");
+
+        assert_eq!(resp.old_state, Some(State("s1".into())));
+        assert_eq!(resp.new_state, Some(State("s2".into())));
+        assert_eq!(
+            resp.created.get("draft").and_then(|d| d.get("id")),
+            Some(&json!("e-new"))
+        );
+        assert!(resp.updated.contains_key("e001"));
+        assert_eq!(resp.destroyed, vec![EmailId("e002".into())]);
+    }
+
+    #[test]
+    fn email_set_surfaces_not_updated_set_errors() {
+        let mock = MockJmap::start();
+        mock.handle_method(
+            "Email/set",
+            json!({
+                "methodResponses": [["Email/set", {
+                    "updated": {},
+                    "notUpdated": { "e001": { "type": "notFound", "description": "missing" } }
+                }, "call-0"]]
+            }),
+        );
+
+        let resp = client(&mock)
+            .email_set(TEST_ACCOUNT_ID, None, Some(json!({ "e001": {} })), &[])
+            .expect("email_set");
+
+        assert!(resp.updated.is_empty());
+        let err = resp
+            .not_updated
+            .get("e001")
+            .expect("notUpdated entry present");
+        assert_eq!(err.get("type"), Some(&json!("notFound")));
     }
 }
