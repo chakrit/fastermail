@@ -9,6 +9,53 @@
 
 use crate::jmap::email::BodyFetch;
 
+// --- Shared field-selection scaffolding (reused across resources) ---
+//
+// The generic L3 projection: select a static `&[&str]` of fields from a faithful JMAP
+// object or array of objects. Identity, vacation, mailbox, and masked_email all project
+// by such a static list; only contact needs a bespoke flatten. This is the L3 home for
+// field selection that the data-layer `actions::project_fields*` will retire into once
+// every resource has migrated.
+
+/// Project a single JSON object down to `fields`, preserving only those keys (in `fields`
+/// order). A non-object value is returned unchanged.
+pub fn project_object(value: &serde_json::Value, fields: &[&str]) -> serde_json::Value {
+    let Some(map) = value.as_object() else {
+        return value.clone();
+    };
+    let mut result = serde_json::Map::new();
+    for &field in fields {
+        if let Some(v) = map.get(field) {
+            result.insert(field.to_string(), v.clone());
+        }
+    }
+    serde_json::Value::Object(result)
+}
+
+/// Project a faithful JMAP value to `fields`: each element of an array (or the value
+/// itself, if a single object) is reduced to the selected keys. A non-array, non-object
+/// value is returned unchanged.
+pub fn project_list(value: &serde_json::Value, fields: &[&str]) -> serde_json::Value {
+    match value.as_array() {
+        Some(items) => serde_json::Value::Array(
+            items
+                .iter()
+                .map(|item| project_object(item, fields))
+                .collect(),
+        ),
+        None => project_object(value, fields),
+    }
+}
+
+/// JMAP `Identity` properties for a list row. The faithful `Identity` carries more
+/// (`bcc`/`textSignature`/`htmlSignature`/`mayDelete`); the view keeps these.
+pub const IDENTITY_LIST_FIELDS: &[&str] = &["id", "name", "email", "replyTo"];
+
+/// Project a faithful `Identity/get` list into the CLI/MCP display shape.
+pub fn project_identity_list(value: &serde_json::Value) -> serde_json::Value {
+    project_list(value, IDENTITY_LIST_FIELDS)
+}
+
 /// JMAP `Email` properties for a list/search row.
 pub const EMAIL_LIST_PROPERTIES: &[&str] =
     &["id", "subject", "from", "to", "receivedAt", "preview"];
@@ -185,5 +232,50 @@ mod tests {
         assert_eq!(email_list_properties(true), EMAIL_LIST_BODY_PROPERTIES);
         assert!(!email_list_body_fetch(false).text);
         assert!(email_list_body_fetch(true).text && email_list_body_fetch(true).html);
+    }
+
+    #[test]
+    fn project_list_selects_fields_per_element() {
+        let faithful = json!([
+            { "id": "id1", "name": "Alice", "email": "a@b.com", "textSignature": "sig" },
+            { "id": "id2", "name": "Bob", "email": "c@d.com", "mayDelete": false }
+        ]);
+        let projected = project_list(&faithful, &["id", "name"]);
+        assert_eq!(
+            projected,
+            json!([{ "id": "id1", "name": "Alice" }, { "id": "id2", "name": "Bob" }])
+        );
+    }
+
+    #[test]
+    fn project_list_handles_single_object_and_passthrough() {
+        let obj = json!({ "id": "x", "extra": 1 });
+        assert_eq!(project_list(&obj, &["id"]), json!({ "id": "x" }));
+        // A non-array, non-object value passes through unchanged.
+        assert_eq!(project_list(&json!("hi"), &["id"]), json!("hi"));
+    }
+
+    #[test]
+    fn project_identity_list_drops_extras() {
+        let faithful = json!([{
+            "id": "id1",
+            "name": "Alice",
+            "email": "alice@example.com",
+            "replyTo": null,
+            "bcc": null,
+            "textSignature": "sig1",
+            "htmlSignature": "<p>sig1</p>",
+            "mayDelete": true
+        }]);
+        let projected = project_identity_list(&faithful);
+        assert_eq!(
+            projected,
+            json!([{
+                "id": "id1",
+                "name": "Alice",
+                "email": "alice@example.com",
+                "replyTo": null
+            }])
+        );
     }
 }
