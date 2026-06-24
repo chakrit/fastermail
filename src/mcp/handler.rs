@@ -1066,4 +1066,158 @@ mod tests {
             "MCP manage_mailbox delete output bytes drifted"
         );
     }
+
+    #[test]
+    fn golden_list_masked_emails_projects_fields() {
+        let mock = crate::testutil::mock_jmap::MockJmap::start();
+        let ctx = mock_ctx(&mock);
+        mock.handle_method(
+            "MaskedEmail/get",
+            serde_json::json!({
+                "methodResponses": [["MaskedEmail/get", {
+                    "list": [
+                        {
+                            "id": "me1",
+                            "email": "abc@fastmail.com",
+                            "forDomain": "example.com",
+                            "description": "Test",
+                            "state": "enabled",
+                            "createdAt": "2026-01-01",
+                            "lastMessageAt": "2026-03-01",
+                            "url": "https://example.com"
+                        },
+                        {
+                            "id": "me2",
+                            "email": "def@fastmail.com",
+                            "forDomain": "other.com",
+                            "description": "Second",
+                            "state": "disabled",
+                            "createdAt": "2026-02-01",
+                            "lastMessageAt": null
+                        }
+                    ]
+                }, "call-0"]]
+            }),
+        );
+
+        let response = handle_tools_call(
+            serde_json::json!({
+                "name": "list_masked_emails",
+                "arguments": {}
+            }),
+            &ctx,
+        );
+
+        let text = tool_call_text(&response);
+        let expected = serde_json::json!([
+            {
+                "id": "me1",
+                "email": "abc@fastmail.com",
+                "forDomain": "example.com",
+                "description": "Test",
+                "state": "enabled",
+                "createdAt": "2026-01-01"
+            },
+            {
+                "id": "me2",
+                "email": "def@fastmail.com",
+                "forDomain": "other.com",
+                "description": "Second",
+                "state": "disabled",
+                "createdAt": "2026-02-01"
+            }
+        ]);
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&text).expect("text should be JSON"),
+            expected,
+            "projected masked email list Value drifted"
+        );
+        assert_eq!(
+            text,
+            serde_json::to_string_pretty(&expected).expect("pretty"),
+            "MCP masked email list output bytes drifted"
+        );
+    }
+
+    #[test]
+    fn golden_create_masked_email_projects_id_and_email_only() {
+        let mock = crate::testutil::mock_jmap::MockJmap::start();
+        let ctx = mock_ctx(&mock);
+        mock.handle_method(
+            "MaskedEmail/set",
+            serde_json::json!({
+                "methodResponses": [["MaskedEmail/set", {
+                    "created": {
+                        "new-masked": {
+                            "id": "me-new",
+                            "email": "new@fastmail.com",
+                            "state": "enabled",
+                            "forDomain": "mysite.com",
+                            "description": "My site login",
+                            "createdAt": "2026-06-25"
+                        }
+                    }
+                }, "call-0"]]
+            }),
+        );
+
+        let response = handle_tools_call(
+            serde_json::json!({
+                "name": "create_masked_email",
+                "arguments": { "forDomain": "mysite.com", "description": "My site login" }
+            }),
+            &ctx,
+        );
+
+        let text = tool_call_text(&response);
+        // Create is asymmetric vs list: only {id, email} survive (state/forDomain/
+        // description/createdAt the server returns are projected out).
+        let expected = serde_json::json!({
+            "id": "me-new",
+            "email": "new@fastmail.com"
+        });
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&text).expect("text should be JSON"),
+            expected,
+            "projected masked email create Value drifted"
+        );
+        assert_eq!(
+            text,
+            serde_json::to_string_pretty(&expected).expect("pretty"),
+            "MCP masked email create output bytes drifted"
+        );
+    }
+
+    #[test]
+    fn golden_update_masked_email_returns_success() {
+        let mock = crate::testutil::mock_jmap::MockJmap::start();
+        let ctx = mock_ctx(&mock);
+        mock.handle_method(
+            "MaskedEmail/set",
+            serde_json::json!({
+                "methodResponses": [["MaskedEmail/set", {"updated": {"me1": null}}, "call-0"]]
+            }),
+        );
+
+        let response = handle_tools_call(
+            serde_json::json!({
+                "name": "update_masked_email",
+                "arguments": { "id": "me1", "state": "disabled" }
+            }),
+            &ctx,
+        );
+
+        let text = tool_call_text(&response);
+        let expected = serde_json::json!({ "success": true });
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&text).expect("text should be JSON"),
+            expected,
+            "masked email update Value drifted"
+        );
+        assert_eq!(
+            text,
+            serde_json::to_string_pretty(&expected).expect("pretty"),
+            "MCP masked email update output bytes drifted"
+        );
+    }
 }
