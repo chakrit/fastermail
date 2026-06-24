@@ -884,4 +884,181 @@ mod tests {
             "MCP vacation set output bytes drifted"
         );
     }
+
+    fn mailbox_list_response() -> serde_json::Value {
+        serde_json::json!({
+            "methodResponses": [["Mailbox/get", {
+                "list": [
+                    {
+                        "id": "mb1", "name": "Inbox", "role": "inbox",
+                        "totalEmails": 42, "unreadEmails": 3, "parentId": null,
+                        "sortOrder": 1, "totalThreads": 40, "unreadThreads": 2,
+                        "myRights": {"mayRead": true}, "isSubscribed": true
+                    },
+                    {
+                        "id": "mb2", "name": "Sent", "role": "sent",
+                        "totalEmails": 10, "unreadEmails": 0, "parentId": null,
+                        "sortOrder": 2, "totalThreads": 9, "unreadThreads": 0,
+                        "myRights": {"mayRead": true}, "isSubscribed": true
+                    }
+                ]
+            }, "call-0"]]
+        })
+    }
+
+    #[test]
+    fn golden_list_mailboxes_projects_fields() {
+        let mock = crate::testutil::mock_jmap::MockJmap::start();
+        let ctx = mock_ctx(&mock);
+        mock.handle_method("Mailbox/get", mailbox_list_response());
+
+        let response = handle_tools_call(
+            serde_json::json!({ "name": "list_mailboxes", "arguments": {} }),
+            &ctx,
+        );
+
+        let text = tool_call_text(&response);
+        let expected = serde_json::json!([
+            {"id": "mb1", "name": "Inbox", "role": "inbox", "totalEmails": 42, "unreadEmails": 3, "parentId": null},
+            {"id": "mb2", "name": "Sent", "role": "sent", "totalEmails": 10, "unreadEmails": 0, "parentId": null}
+        ]);
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&text).expect("text should be JSON"),
+            expected,
+            "projected mailbox list Value drifted"
+        );
+        assert_eq!(
+            text,
+            serde_json::to_string_pretty(&expected).expect("pretty"),
+            "MCP mailbox list output bytes drifted"
+        );
+    }
+
+    #[test]
+    fn golden_list_mailboxes_filters_by_role() {
+        let mock = crate::testutil::mock_jmap::MockJmap::start();
+        let ctx = mock_ctx(&mock);
+        mock.handle_method("Mailbox/get", mailbox_list_response());
+
+        let response = handle_tools_call(
+            serde_json::json!({ "name": "list_mailboxes", "arguments": { "role": "inbox" } }),
+            &ctx,
+        );
+
+        let text = tool_call_text(&response);
+        let expected = serde_json::json!([
+            {"id": "mb1", "name": "Inbox", "role": "inbox", "totalEmails": 42, "unreadEmails": 3, "parentId": null}
+        ]);
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&text).expect("text should be JSON"),
+            expected,
+            "role-filtered mailbox list Value drifted"
+        );
+        assert_eq!(
+            text,
+            serde_json::to_string_pretty(&expected).expect("pretty"),
+            "MCP role-filtered mailbox list output bytes drifted"
+        );
+    }
+
+    #[test]
+    fn golden_manage_mailbox_create_returns_id() {
+        let mock = crate::testutil::mock_jmap::MockJmap::start();
+        let ctx = mock_ctx(&mock);
+        mock.handle_method(
+            "Mailbox/set",
+            serde_json::json!({
+                "methodResponses": [["Mailbox/set", {
+                    "created": {"new-mailbox": {"id": "mbox-new"}}
+                }, "call-0"]]
+            }),
+        );
+
+        let response = handle_tools_call(
+            serde_json::json!({
+                "name": "manage_mailbox",
+                "arguments": { "action": "create", "name": "Projects" }
+            }),
+            &ctx,
+        );
+
+        let text = tool_call_text(&response);
+        let expected = serde_json::json!({ "success": true, "mailboxId": "mbox-new" });
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&text).expect("text should be JSON"),
+            expected,
+            "manage_mailbox create Value drifted"
+        );
+        assert_eq!(
+            text,
+            serde_json::to_string_pretty(&expected).expect("pretty"),
+            "MCP manage_mailbox create output bytes drifted"
+        );
+    }
+
+    #[test]
+    fn golden_manage_mailbox_rename_returns_id() {
+        let mock = crate::testutil::mock_jmap::MockJmap::start();
+        let ctx = mock_ctx(&mock);
+        mock.handle_method(
+            "Mailbox/set",
+            serde_json::json!({
+                "methodResponses": [["Mailbox/set", {"updated": {"mb1": null}}, "call-0"]]
+            }),
+        );
+
+        let response = handle_tools_call(
+            serde_json::json!({
+                "name": "manage_mailbox",
+                "arguments": { "action": "rename", "mailboxId": "mb1", "name": "NewName" }
+            }),
+            &ctx,
+        );
+
+        let text = tool_call_text(&response);
+        let expected = serde_json::json!({ "success": true, "mailboxId": "mb1" });
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&text).expect("text should be JSON"),
+            expected,
+            "manage_mailbox rename Value drifted"
+        );
+        assert_eq!(
+            text,
+            serde_json::to_string_pretty(&expected).expect("pretty"),
+            "MCP manage_mailbox rename output bytes drifted"
+        );
+    }
+
+    #[test]
+    fn golden_manage_mailbox_delete_returns_id() {
+        let mock = crate::testutil::mock_jmap::MockJmap::start();
+        let ctx = mock_ctx(&mock);
+        mock.handle_method(
+            "Mailbox/set",
+            serde_json::json!({
+                "methodResponses": [["Mailbox/set", {"destroyed": ["mb-del"]}, "call-0"]]
+            }),
+        );
+
+        let response = handle_tools_call(
+            serde_json::json!({
+                "name": "manage_mailbox",
+                "arguments": { "action": "delete", "mailboxId": "mb-del" }
+            }),
+            &ctx,
+        );
+
+        let text = tool_call_text(&response);
+        let expected = serde_json::json!({ "success": true, "mailboxId": "mb-del" });
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&text).expect("text should be JSON"),
+            expected,
+            "manage_mailbox delete Value drifted"
+        );
+        assert_eq!(
+            text,
+            serde_json::to_string_pretty(&expected).expect("pretty"),
+            "MCP manage_mailbox delete output bytes drifted"
+        );
+    }
 }
