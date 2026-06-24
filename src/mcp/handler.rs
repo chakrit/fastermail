@@ -217,10 +217,10 @@ fn dispatch_tool(
         "list_masked_emails" => {
             let state = match str_param(args, "state").as_str() {
                 "" => None,
-                s => Some(masked_email::MaskedEmailState::parse(s)?),
+                s => Some(present::MaskedEmailState::parse(s)?),
             };
-            let action = masked_email::ListMaskedEmails { state };
-            action.run(ctx)
+            let value = masked_email::ListMaskedEmails.run(ctx)?;
+            Ok(present::project_masked_email_list(&value, state))
         }
         "create_masked_email" => {
             let action = masked_email::CreateMaskedEmail {
@@ -228,14 +228,16 @@ fn dispatch_tool(
                 description: str_param(args, "description"),
                 email_prefix: str_param(args, "emailPrefix"),
             };
-            action.run(ctx)
+            let value = action.run(ctx)?;
+            Ok(present::project_masked_email_create(&value))
         }
         "update_masked_email" => {
             let action = masked_email::UpdateMaskedEmail {
                 id: str_param(args, "id"),
-                state: masked_email::MaskedEmailState::parse_settable(&str_param(args, "state"))?,
+                state: present::MaskedEmailState::parse_settable(&str_param(args, "state"))?,
             };
-            action.run(ctx)
+            action.run(ctx)?;
+            Ok(present::set_ok())
         }
         "list_address_books" => {
             let action = contact::ListAddressBooks;

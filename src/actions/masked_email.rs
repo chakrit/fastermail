@@ -1,19 +1,8 @@
-use crate::actions::{Action, Context, project_fields, project_fields_array};
+use crate::actions::{Action, Context};
 use crate::error::{Error, Result};
-use crate::json;
+use crate::jmap::masked_email::MaskedEmailId;
 use crate::mcp::types::Tool;
-
-const LIST_FIELDS: &[&str] = &[
-    "id",
-    "email",
-    "forDomain",
-    "description",
-    "state",
-    "createdAt",
-];
-const CREATE_FIELDS: &[&str] = &["id", "email"];
-
-const CAPABILITY: &str = "https://www.fastmail.com/dev/maskedemail";
+use crate::present::MaskedEmailState;
 
 pub fn tools() -> Vec<Tool> {
     vec![
@@ -57,87 +46,19 @@ pub fn tools() -> Vec<Tool> {
     ]
 }
 
-/// Lifecycle state of a masked email.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MaskedEmailState {
-    Pending,
-    Enabled,
-    Disabled,
-    Deleted,
-}
-
-impl MaskedEmailState {
-    /// Parse any lifecycle state — used for list filtering.
-    pub fn parse(s: &str) -> Result<Self> {
-        match s {
-            "pending" => Ok(Self::Pending),
-            "enabled" => Ok(Self::Enabled),
-            "disabled" => Ok(Self::Disabled),
-            "deleted" => Ok(Self::Deleted),
-            _ => Err(Error::InvalidParams(
-                "state must be pending, enabled, disabled, or deleted".to_string(),
-            )),
-        }
-    }
-
-    /// Parse a settable state — used for updates. `pending` is auto-assigned by the
-    /// server and cannot be set, so it is rejected here.
-    pub fn parse_settable(s: &str) -> Result<Self> {
-        match s {
-            "" => Err(Error::InvalidParams("state is required".to_string())),
-            "enabled" => Ok(Self::Enabled),
-            "disabled" => Ok(Self::Disabled),
-            "deleted" => Ok(Self::Deleted),
-            _ => Err(Error::InvalidParams(
-                "state must be enabled, disabled, or deleted".to_string(),
-            )),
-        }
-    }
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Pending => "pending",
-            Self::Enabled => "enabled",
-            Self::Disabled => "disabled",
-            Self::Deleted => "deleted",
-        }
-    }
-}
-
-pub struct ListMaskedEmails {
-    pub state: Option<MaskedEmailState>,
-}
+/// List masked emails. Returns the faithful, unfiltered `MaskedEmail/get` list; the L3
+/// presenter selects the view fields and applies any state filter.
+pub struct ListMaskedEmails;
 
 impl Action for ListMaskedEmails {
     fn run(&self, ctx: &Context) -> Result<serde_json::Value> {
-        let data = ctx.jmap.call_one(
-            CAPABILITY,
-            "MaskedEmail/get",
-            serde_json::json!({ "accountId": ctx.account_id }),
-        )?;
-
-        let list = data.get("list").cloned().unwrap_or(serde_json::json!([]));
-
-        let Some(state) = self.state else {
-            return Ok(project_fields_array(&list, LIST_FIELDS));
-        };
-
-        let filtered: Vec<&serde_json::Value> = list
-            .as_array()
-            .map(|arr| {
-                arr.iter()
-                    .filter(|m| json::str_at(m, "/state") == Some(state.label()))
-                    .collect()
-            })
-            .unwrap_or_default();
-
-        Ok(project_fields_array(
-            &serde_json::json!(filtered),
-            LIST_FIELDS,
-        ))
+        let resp = ctx.jmap.masked_email_get(&ctx.account_id)?;
+        Ok(serde_json::to_value(resp.list)?)
     }
 }
 
+/// Create a masked email. Returns the faithful `MaskedEmail/set` response; the L3 presenter
+/// projects the created object down to the asymmetric `{id, email}` create view.
 pub struct CreateMaskedEmail {
     pub for_domain: String,
     pub description: String,
@@ -158,23 +79,19 @@ impl Action for CreateMaskedEmail {
             create_obj["emailPrefix"] = serde_json::json!(self.email_prefix);
         }
 
-        let args = serde_json::json!({
-            "accountId": ctx.account_id,
-            "create": { "new-masked": create_obj }
-        });
-
-        let data = ctx.jmap.call_one(CAPABILITY, "MaskedEmail/set", args)?;
-
-        let created = data
-            .get("created")
-            .and_then(|c| c.get("new-masked"))
-            .cloned()
-            .unwrap_or(serde_json::json!({}));
-
-        Ok(project_fields(&created, CREATE_FIELDS))
+        let resp = ctx.jmap.masked_email_set(
+            &ctx.account_id,
+            Some(serde_json::json!({ "new-masked": create_obj })),
+            None,
+            &[],
+        )?;
+        resp.check_errors("MaskedEmail/set")?;
+        Ok(serde_json::to_value(resp)?)
     }
 }
 
+/// Enable/disable/delete a masked email. Returns the faithful `MaskedEmail/set` response;
+/// the L3 presenter emits the `{success}` wrapper.
 pub struct UpdateMaskedEmail {
     pub id: String,
     pub state: MaskedEmailState,
@@ -186,16 +103,18 @@ impl Action for UpdateMaskedEmail {
             return Err(Error::InvalidParams("id is required".to_string()));
         }
 
-        let args = serde_json::json!({
-            "accountId": ctx.account_id,
-            "update": {
-                self.id.clone(): { "state": self.state.label() }
-            }
+        let update = serde_json::json!({
+            self.id.clone(): { "state": self.state.label() }
         });
 
-        ctx.jmap.call_one(CAPABILITY, "MaskedEmail/set", args)?;
-
-        Ok(serde_json::json!({ "success": true }))
+        let resp = ctx.jmap.masked_email_set(
+            &ctx.account_id,
+            None,
+            Some(update),
+            &[] as &[MaskedEmailId],
+        )?;
+        resp.check_errors("MaskedEmail/set")?;
+        Ok(serde_json::to_value(resp)?)
     }
 }
 
@@ -207,8 +126,18 @@ mod tests {
     use crate::testutil::mock_jmap::{MockJmap, TEST_ACCOUNT_ID};
     use serde_json::json;
 
+    fn ctx_for(mock: &MockJmap) -> Context {
+        let (client, _) =
+            JmapClient::connect_to(&mock.session_url(), "fake-token").expect("session");
+        Context {
+            jmap: client,
+            account_id: TEST_ACCOUNT_ID.to_string(),
+            recorder: None,
+        }
+    }
+
     #[test]
-    fn list_masked_emails_returns_all() {
+    fn list_masked_emails_returns_faithful_list() {
         let mock = MockJmap::start();
         mock.handle_method(
             "MaskedEmail/get",
@@ -222,113 +151,25 @@ mod tests {
                             "description": "Test",
                             "state": "enabled",
                             "createdAt": "2026-01-01",
-                            "extraField": "ignored"
-                        },
-                        {
-                            "id": "me2",
-                            "email": "def@fastmail.com",
-                            "forDomain": "other.com",
-                            "description": "Second",
-                            "state": "disabled",
-                            "createdAt": "2026-02-01",
-                            "anotherExtra": "also ignored"
+                            "lastMessageAt": "2026-03-01"
                         }
                     ]
                 }, "call-0"]]
             }),
         );
 
-        let (client, _) =
-            JmapClient::connect_to(&mock.session_url(), "fake-token").expect("session");
-        let ctx = Context {
-            jmap: client,
-            account_id: TEST_ACCOUNT_ID.to_string(),
-            recorder: None,
-        };
-
-        let result = ListMaskedEmails { state: None }.run(&ctx).expect("run");
-        let arr = result.as_array().expect("array");
-        assert_eq!(arr.len(), 2);
-
-        for item in arr {
-            let obj = item.as_object().expect("object");
-            for key in obj.keys() {
-                assert!(
-                    LIST_FIELDS.contains(&key.as_str()),
-                    "unexpected field: {key}"
-                );
-            }
-        }
-
-        assert_eq!(arr[0]["id"], "me1");
-        assert_eq!(arr[0]["email"], "abc@fastmail.com");
-        assert_eq!(arr[0]["forDomain"], "example.com");
-        assert_eq!(arr[0]["description"], "Test");
-        assert_eq!(arr[0]["state"], "enabled");
-        assert_eq!(arr[0]["createdAt"], "2026-01-01");
-        assert!(arr[0].get("extraField").is_none());
-
-        assert_eq!(arr[1]["id"], "me2");
-        assert_eq!(arr[1]["email"], "def@fastmail.com");
-        assert!(arr[1].get("anotherExtra").is_none());
-    }
-
-    #[test]
-    fn list_masked_emails_filters_by_state() {
-        let mock = MockJmap::start();
-        mock.handle_method(
-            "MaskedEmail/get",
-            json!({
-                "methodResponses": [["MaskedEmail/get", {
-                    "list": [
-                        {
-                            "id": "me1",
-                            "email": "abc@fastmail.com",
-                            "forDomain": "example.com",
-                            "description": "Enabled one",
-                            "state": "enabled",
-                            "createdAt": "2026-01-01"
-                        },
-                        {
-                            "id": "me2",
-                            "email": "def@fastmail.com",
-                            "forDomain": "other.com",
-                            "description": "Disabled one",
-                            "state": "disabled",
-                            "createdAt": "2026-02-01"
-                        }
-                    ]
-                }, "call-0"]]
-            }),
-        );
-
-        let (client, _) =
-            JmapClient::connect_to(&mock.session_url(), "fake-token").expect("session");
-        let ctx = Context {
-            jmap: client,
-            account_id: TEST_ACCOUNT_ID.to_string(),
-            recorder: None,
-        };
-
-        let result = ListMaskedEmails {
-            state: Some(MaskedEmailState::Enabled),
-        }
-        .run(&ctx)
-        .expect("run");
+        let ctx = ctx_for(&mock);
+        let result = ListMaskedEmails.run(&ctx).expect("run");
         let arr = result.as_array().expect("array");
         assert_eq!(arr.len(), 1);
+        // The action returns FAITHFUL data — extras the L3 presenter projects out are
+        // still present here.
         assert_eq!(arr[0]["id"], "me1");
-        assert_eq!(arr[0]["state"], "enabled");
+        assert_eq!(arr[0]["lastMessageAt"], "2026-03-01");
     }
 
     #[test]
-    fn list_masked_emails_rejects_invalid_state() {
-        let err = MaskedEmailState::parse("bogus").expect_err("should reject invalid state");
-        assert!(matches!(err, Error::InvalidParams(_)));
-    }
-
-    #[test]
-    fn create_masked_email_succeeds() {
+    fn create_masked_email_returns_faithful_set_response() {
         let mock = MockJmap::start();
         mock.handle_method(
             "MaskedEmail/set",
@@ -337,75 +178,52 @@ mod tests {
                     "created": {
                         "new-masked": {
                             "id": "me-new",
-                            "email": "new@fastmail.com"
+                            "email": "new@fastmail.com",
+                            "state": "enabled",
+                            "forDomain": "mysite.com"
                         }
                     }
                 }, "call-0"]]
             }),
         );
 
-        let (client, _) =
-            JmapClient::connect_to(&mock.session_url(), "fake-token").expect("session");
-        let ctx = Context {
-            jmap: client,
-            account_id: TEST_ACCOUNT_ID.to_string(),
-            recorder: None,
-        };
-
+        let ctx = ctx_for(&mock);
         let result = CreateMaskedEmail {
-            for_domain: String::new(),
+            for_domain: "mysite.com".to_string(),
             description: String::new(),
             email_prefix: String::new(),
         }
         .run(&ctx)
         .expect("run");
 
-        let obj = result.as_object().expect("object");
-        assert_eq!(obj["id"], "me-new");
-        assert_eq!(obj["email"], "new@fastmail.com");
-        for key in obj.keys() {
-            assert!(
-                CREATE_FIELDS.contains(&key.as_str()),
-                "unexpected field: {key}"
-            );
-        }
+        // FAITHFUL set response: the full created object survives (the L3 create presenter
+        // projects it down to {id,email}).
+        assert_eq!(result["created"]["new-masked"]["id"], "me-new");
+        assert_eq!(result["created"]["new-masked"]["forDomain"], "mysite.com");
     }
 
     #[test]
-    fn create_masked_email_includes_optional_fields() {
+    fn create_masked_email_surfaces_set_errors() {
         let mock = MockJmap::start();
         mock.handle_method(
             "MaskedEmail/set",
             json!({
                 "methodResponses": [["MaskedEmail/set", {
-                    "created": {
-                        "new-masked": {
-                            "id": "me-opt",
-                            "email": "opt@fastmail.com"
-                        }
-                    }
+                    "created": {},
+                    "notCreated": { "new-masked": { "type": "forbidden", "description": "nope" } }
                 }, "call-0"]]
             }),
         );
 
-        let (client, _) =
-            JmapClient::connect_to(&mock.session_url(), "fake-token").expect("session");
-        let ctx = Context {
-            jmap: client,
-            account_id: TEST_ACCOUNT_ID.to_string(),
-            recorder: None,
-        };
-
-        let result = CreateMaskedEmail {
-            for_domain: "mysite.com".to_string(),
-            description: "My site login".to_string(),
-            email_prefix: "mysite".to_string(),
+        let ctx = ctx_for(&mock);
+        let err = CreateMaskedEmail {
+            for_domain: String::new(),
+            description: String::new(),
+            email_prefix: String::new(),
         }
         .run(&ctx)
-        .expect("run");
-
-        assert_eq!(result["id"], "me-opt");
-        assert_eq!(result["email"], "opt@fastmail.com");
+        .expect_err("should surface set error");
+        assert!(err.to_string().contains("nope"));
     }
 
     #[test]
@@ -427,42 +245,16 @@ mod tests {
     }
 
     #[test]
-    fn update_masked_email_requires_state() {
-        let err = MaskedEmailState::parse_settable("").expect_err("should require state");
-        assert!(matches!(err, Error::InvalidParams(_)));
-    }
-
-    #[test]
-    fn update_masked_email_rejects_invalid_state() {
-        let err =
-            MaskedEmailState::parse_settable("bogus").expect_err("should reject invalid state");
-        assert!(matches!(err, Error::InvalidParams(_)));
-        // `pending` is a real lifecycle state but cannot be set by the client.
-        assert!(MaskedEmailState::parse_settable("pending").is_err());
-    }
-
-    #[test]
-    fn update_masked_email_succeeds() {
+    fn update_masked_email_returns_faithful_set_response() {
         let mock = MockJmap::start();
         mock.handle_method(
             "MaskedEmail/set",
             json!({
-                "methodResponses": [["MaskedEmail/set", {
-                    "updated": {
-                        "me1": null
-                    }
-                }, "call-0"]]
+                "methodResponses": [["MaskedEmail/set", {"updated": {"me1": null}}, "call-0"]]
             }),
         );
 
-        let (client, _) =
-            JmapClient::connect_to(&mock.session_url(), "fake-token").expect("session");
-        let ctx = Context {
-            jmap: client,
-            account_id: TEST_ACCOUNT_ID.to_string(),
-            recorder: None,
-        };
-
+        let ctx = ctx_for(&mock);
         let result = UpdateMaskedEmail {
             id: "me1".to_string(),
             state: MaskedEmailState::Disabled,
@@ -470,29 +262,34 @@ mod tests {
         .run(&ctx)
         .expect("run");
 
-        assert_eq!(result["success"], true);
+        assert!(
+            result["updated"]
+                .as_object()
+                .expect("updated map")
+                .contains_key("me1")
+        );
     }
 
     #[test]
-    fn list_masked_emails_returns_empty_list() {
+    fn update_masked_email_surfaces_set_errors() {
         let mock = MockJmap::start();
         mock.handle_method(
-            "MaskedEmail/get",
-            json!({"methodResponses": [["MaskedEmail/get", {"list": []}, "call-0"]]}),
+            "MaskedEmail/set",
+            json!({
+                "methodResponses": [["MaskedEmail/set", {
+                    "updated": {},
+                    "notUpdated": { "me1": { "type": "notFound", "description": "gone" } }
+                }, "call-0"]]
+            }),
         );
 
-        let (client, _) =
-            JmapClient::connect_to(&mock.session_url(), "fake-token").expect("session");
-        let ctx = Context {
-            jmap: client,
-            account_id: TEST_ACCOUNT_ID.to_string(),
-            recorder: None,
-        };
-
-        let result = ListMaskedEmails { state: None }
-            .run(&ctx)
-            .expect("empty list should succeed");
-        let arr = result.as_array().expect("should be array");
-        assert!(arr.is_empty(), "should return empty array");
+        let ctx = ctx_for(&mock);
+        let err = UpdateMaskedEmail {
+            id: "me1".to_string(),
+            state: MaskedEmailState::Disabled,
+        }
+        .run(&ctx)
+        .expect_err("should surface set error");
+        assert!(err.to_string().contains("gone"));
     }
 }

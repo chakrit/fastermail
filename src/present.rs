@@ -104,6 +104,113 @@ pub fn project_mailbox_list(value: &serde_json::Value, role: &str) -> serde_json
     project_list(&serde_json::Value::Array(filtered), MAILBOX_LIST_FIELDS)
 }
 
+/// FastMail `MaskedEmail` properties for a list row. The faithful `MaskedEmail` carries
+/// more (`lastMessageAt`, `url`, and any field FastMail adds later); the view drops these.
+pub const MASKED_EMAIL_LIST_FIELDS: &[&str] = &[
+    "id",
+    "email",
+    "forDomain",
+    "description",
+    "state",
+    "createdAt",
+];
+
+/// FastMail `MaskedEmail` properties for the create view — deliberately ASYMMETRIC vs the
+/// list: only `id`/`email` survive (the server returns the full object on create, but the
+/// create view drops `state`/`forDomain`/`description`/`createdAt`).
+pub const MASKED_EMAIL_CREATE_FIELDS: &[&str] = &["id", "email"];
+
+/// Lifecycle state of a masked email — an L3 input-parsing concern (the CLI/MCP validate
+/// the state argument before it reaches the data layer, like [`FieldChange`] for vacation).
+/// FastMail expresses the state directly as the `state` field; this enum just constrains
+/// and labels the accepted values.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MaskedEmailState {
+    Pending,
+    Enabled,
+    Disabled,
+    Deleted,
+}
+
+impl MaskedEmailState {
+    /// Parse any lifecycle state — used for list filtering.
+    pub fn parse(s: &str) -> crate::error::Result<Self> {
+        match s {
+            "pending" => Ok(Self::Pending),
+            "enabled" => Ok(Self::Enabled),
+            "disabled" => Ok(Self::Disabled),
+            "deleted" => Ok(Self::Deleted),
+            _ => Err(crate::error::Error::InvalidParams(
+                "state must be pending, enabled, disabled, or deleted".to_string(),
+            )),
+        }
+    }
+
+    /// Parse a settable state — used for updates. `pending` is auto-assigned by the
+    /// server and cannot be set, so it is rejected here.
+    pub fn parse_settable(s: &str) -> crate::error::Result<Self> {
+        match s {
+            "" => Err(crate::error::Error::InvalidParams(
+                "state is required".to_string(),
+            )),
+            "enabled" => Ok(Self::Enabled),
+            "disabled" => Ok(Self::Disabled),
+            "deleted" => Ok(Self::Deleted),
+            _ => Err(crate::error::Error::InvalidParams(
+                "state must be enabled, disabled, or deleted".to_string(),
+            )),
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Enabled => "enabled",
+            Self::Disabled => "disabled",
+            Self::Deleted => "deleted",
+        }
+    }
+}
+
+/// Project a faithful `MaskedEmail/get` list into the CLI/MCP display shape, optionally
+/// filtered by lifecycle `state` first. `None` keeps every masked email. The state filter
+/// is an L3 view concern (the data layer returns the faithful, unfiltered list).
+pub fn project_masked_email_list(
+    value: &serde_json::Value,
+    state: Option<MaskedEmailState>,
+) -> serde_json::Value {
+    let Some(state) = state else {
+        return project_list(value, MASKED_EMAIL_LIST_FIELDS);
+    };
+    let filtered: Vec<serde_json::Value> = value
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter(|m| crate::json::str_at(m, "/state") == Some(state.label()))
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default();
+    project_list(
+        &serde_json::Value::Array(filtered),
+        MASKED_EMAIL_LIST_FIELDS,
+    )
+}
+
+/// Project the created object out of a faithful `MaskedEmail/set` response into the create
+/// view's `{id, email}` shape. Digs the (single) `created` entry — the front-ends never see
+/// the creation-id key — and projects it; a response with no created object yields `{}`,
+/// matching the prior action behaviour.
+pub fn project_masked_email_create(set_response: &serde_json::Value) -> serde_json::Value {
+    let created = set_response
+        .get("created")
+        .and_then(|c| c.as_object())
+        .and_then(|map| map.values().next())
+        .cloned()
+        .unwrap_or(serde_json::json!({}));
+    project_object(&created, MASKED_EMAIL_CREATE_FIELDS)
+}
+
 /// The `{success: true}` MCP-wrapper shape — an L3 concern, emitted by the front-ends
 /// after a typed `*_set` accessor returns, not from the action itself.
 pub fn set_ok() -> serde_json::Value {
@@ -465,6 +572,97 @@ mod tests {
             set_with_id("mailboxId", None),
             json!({ "success": true, "mailboxId": null })
         );
+    }
+
+    #[test]
+    fn project_masked_email_list_drops_extras() {
+        let faithful = json!([{
+            "id": "me1",
+            "email": "abc@fastmail.com",
+            "forDomain": "example.com",
+            "description": "Test",
+            "state": "enabled",
+            "createdAt": "2026-01-01",
+            "lastMessageAt": "2026-03-01",
+            "url": "https://example.com"
+        }]);
+        let projected = project_masked_email_list(&faithful, None);
+        assert_eq!(
+            projected,
+            json!([{
+                "id": "me1",
+                "email": "abc@fastmail.com",
+                "forDomain": "example.com",
+                "description": "Test",
+                "state": "enabled",
+                "createdAt": "2026-01-01"
+            }])
+        );
+    }
+
+    #[test]
+    fn project_masked_email_list_filters_by_state() {
+        let faithful = json!([
+            {"id": "me1", "email": "a@fastmail.com", "forDomain": "x.com", "description": "", "state": "enabled", "createdAt": "2026-01-01"},
+            {"id": "me2", "email": "b@fastmail.com", "forDomain": "y.com", "description": "", "state": "disabled", "createdAt": "2026-02-01"}
+        ]);
+        assert_eq!(
+            project_masked_email_list(&faithful, Some(MaskedEmailState::Enabled)),
+            json!([{"id": "me1", "email": "a@fastmail.com", "forDomain": "x.com", "description": "", "state": "enabled", "createdAt": "2026-01-01"}])
+        );
+        // A state with no matching entry projects to an empty array.
+        assert_eq!(
+            project_masked_email_list(&faithful, Some(MaskedEmailState::Deleted)),
+            json!([])
+        );
+    }
+
+    #[test]
+    fn masked_email_state_parse_validates() {
+        assert_eq!(
+            MaskedEmailState::parse("enabled").expect("valid"),
+            MaskedEmailState::Enabled
+        );
+        assert!(MaskedEmailState::parse("bogus").is_err());
+        // `pending` parses for filtering but is rejected as a settable update.
+        assert_eq!(
+            MaskedEmailState::parse("pending").expect("valid"),
+            MaskedEmailState::Pending
+        );
+        assert!(MaskedEmailState::parse_settable("pending").is_err());
+        assert!(MaskedEmailState::parse_settable("").is_err());
+        assert!(MaskedEmailState::parse_settable("bogus").is_err());
+        assert_eq!(MaskedEmailState::Disabled.label(), "disabled");
+    }
+
+    #[test]
+    fn project_masked_email_create_keeps_id_and_email_only() {
+        // The faithful set response carries the full created object; the create view is
+        // asymmetric — only id/email survive.
+        let set_response = json!({
+            "created": {"new-masked": {
+                "id": "me-new",
+                "email": "new@fastmail.com",
+                "state": "enabled",
+                "forDomain": "mysite.com",
+                "description": "My site login",
+                "createdAt": "2026-06-25"
+            }}
+        });
+        assert_eq!(
+            project_masked_email_create(&set_response),
+            json!({ "id": "me-new", "email": "new@fastmail.com" })
+        );
+    }
+
+    #[test]
+    fn project_masked_email_create_handles_missing_created() {
+        // No created object → empty object, matching the prior action behaviour.
+        assert_eq!(
+            project_masked_email_create(&json!({ "created": {} })),
+            json!({})
+        );
+        assert_eq!(project_masked_email_create(&json!({})), json!({}));
     }
 
     #[test]

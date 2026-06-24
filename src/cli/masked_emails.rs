@@ -1,12 +1,11 @@
 use crate::json;
 use clap::Subcommand;
 
-use crate::actions::masked_email::{
-    CreateMaskedEmail, ListMaskedEmails, MaskedEmailState, UpdateMaskedEmail,
-};
+use crate::actions::masked_email::{CreateMaskedEmail, ListMaskedEmails, UpdateMaskedEmail};
 use crate::actions::{Action, Context};
 use crate::cli::io::{Io, OutputMode};
 use crate::error::Result;
+use crate::present::{self, MaskedEmailState};
 
 #[derive(Subcommand)]
 pub enum MaskedEmailCommand {
@@ -48,10 +47,10 @@ pub fn run(cmd: MaskedEmailCommand, ctx: &Context, io: &Io) -> Result<()> {
         MaskedEmailCommand::List { state } => {
             let state = state.map(|s| MaskedEmailState::parse(&s)).transpose()?;
             let spinner = io.progress("Fetching masked emails…");
-            let action = ListMaskedEmails { state };
+            let action = ListMaskedEmails;
             let result = action.run(ctx);
             Io::finish_progress(spinner);
-            let value = result?;
+            let value = present::project_masked_email_list(&result?, state);
 
             if io.mode() != OutputMode::Human {
                 io.json(&value);
@@ -109,7 +108,7 @@ pub fn run(cmd: MaskedEmailCommand, ctx: &Context, io: &Io) -> Result<()> {
             };
             let result = action.run(ctx);
             Io::finish_progress(spinner);
-            let value = result?;
+            let value = present::project_masked_email_create(&result?);
 
             if io.mode() == OutputMode::Human {
                 let email = json::str_at(&value, "/email").unwrap_or("?");
@@ -133,7 +132,7 @@ pub fn run(cmd: MaskedEmailCommand, ctx: &Context, io: &Io) -> Result<()> {
             if io.mode() == OutputMode::Human {
                 io.done(&format!("State updated to: {state}"));
             } else {
-                io.json(&serde_json::json!({ "success": true }));
+                io.json(&present::set_ok());
             }
         }
     }
