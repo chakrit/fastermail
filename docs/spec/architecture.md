@@ -17,6 +17,7 @@ fastermail/
 │   ├── logging.rs           # [lib] Leveled stderr logging (FASTERMAIL_LOG) + log_* macros
 │   ├── recorder.rs          # [lib] Request/response recording for test data capture
 │   ├── config.rs            # [bin] Token resolution (env var → ~/.config/fastermail/config.toml)
+│   ├── present.rs           # [bin] L3 Email presenters: view property lists + projection (CLI+MCP share)
 │   ├── jmap/                # [lib] L0 transport + L1 typed JMAP accessors
 │   │   ├── mod.rs           # JMAP module root
 │   │   ├── client.rs        # HTTP client, session, call/call_one, blob download
@@ -39,7 +40,7 @@ fastermail/
 │   │   ├── vacation.rs      # Vacation subcommands
 │   │   ├── masked_emails.rs # Masked email subcommands
 │   │   └── contacts.rs      # Contact subcommands
-│   └── actions/             # [bin] Unit-of-work structs (Action trait): JMAP calls + projection
+│   └── actions/             # [bin] Unit-of-work structs (Action trait): JMAP calls (+ projection, pre-Email-migration)
 │       ├── mod.rs           # Action trait + registry + Context
 │       ├── email.rs         # Email action structs
 │       ├── mailbox.rs       # Mailbox action structs
@@ -51,8 +52,9 @@ fastermail/
 
 `[lib]` modules form the `fastermail` library (L0 transport + L1 JMAP accessors); `[bin]`
 modules are the `fm` binary and MCP server — thin L3 callers that depend on the library.
-This split is step 1 of the layering rearchitect; projection currently still lives in
-`actions/` and migrates into the presenters in later steps (see
+This split is step 1 of the layering rearchitect. Email's read projection has migrated to
+the L3 `present.rs` presenter (shared by CLI + MCP); the other five resources still project
+in `actions/` and migrate in later steps (see
 `docs/notes/2026-06-21-layering-rearchitect-plan.md`).
 
 Calendars are out of scope — FastMail exposes no `jmap:calendars` capability (CalDAV only).

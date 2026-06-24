@@ -234,3 +234,63 @@ action, add per-resource projection to `src/present.rs`, applied in CLI + MCP be
 golden net captured first. Then steps 3–4 (move `tools()` schemas to MCP, move
 `resolve_mailbox` + parsers to lib sugar, delete `project_fields*` + the
 `Value`-returning `Action` trait once all resources migrate).
+
+## Phase A audit (2026-06-25) — step-2 Email batch (`6eca4aa^..HEAD`)
+
+Audited `6eca4aa`..`5602f75` (`src/`): the `email_set` accessor + `EmailSetResponse`,
+move/delete/flag rewired onto it, `email_get` `BodyFetch`, and the read-projection
+relocation to `src/present.rs` + the `Io` capture seam. **Verdict: clean batch.** Layering,
+correctness, and byte-identity all hold; the golden tests genuinely pin exact bytes for both
+presenters (body + list, parsed `Value` + raw string). No violations. Findings below are
+borderline / cleanup, ranked; two stale-doc fixes already applied inline this audit.
+
+Ranked fix-slices:
+
+1. **[borderline] Action depends on the bin-side L3 `present` module.**
+   `actions/email.rs:57-58` (`fetch_emails_by_ids`) calls `present::email_list_properties`
+   / `present::email_list_body_fetch`; `:379` (`GetEmailBody`) reads
+   `present::EMAIL_BODY_PROPERTIES`. The action — slated to become lib sugar — imports the
+   view's property contract from L3. Intended per the plan ("present.rs owns the JMAP
+   `properties` an action should request"), and harmless while actions are still `[bin]`,
+   but it inverts the eventual lib→bin dependency: once actions move to the lib, they can't
+   import a bin module. **Fix (slice, when actions migrate to lib):** the property/body-fetch
+   contract is a *caller* concern — have the CLI/MCP pass the `properties` + `BodyFetch`
+   *into* the action (or the L1 accessor) rather than the action reaching up into `present`.
+   Until then, leave as-is.
+
+2. **[borderline, justified] `EmailSetResponse::check_errors` duplicates the free
+   `check_set_errors`.** `jmap/email.rs:139` (typed) vs `actions/mod.rs:57` (raw `Value`).
+   Same notCreated→notUpdated→notDestroyed scan, first-description-wins. Justified: the typed
+   one serves the migrated `email_set` path (move/delete/flag); the raw one still serves
+   `SendEmail`, whose 2-method `Email/set`+`EmailSubmission/set` batch goes through `call`
+   (loose `Value`s), not `email_set`. **Fix (slice):** migrate `SendEmail`'s draft-create
+   onto `email_set` (or add a typed `EmailSubmission/set` accessor) and delete the raw
+   `check_set_errors` once no raw `/set` caller remains. Folds into propagating the pattern.
+
+3. **[out-of-scope, test gap] No golden test for the no-body list path.**
+   `present::project_email_list` runs `extract_body_content` (synth `date`, drop
+   `bodyValues`) even when `include_body=false`; both golden list tests
+   (`cli/emails.rs:682`, `mcp/handler.rs:666`) use `includeBody=true`. A regression in the
+   no-body projection (e.g. `date` synthesis) wouldn't be caught by a presenter golden.
+   **Fix (slice):** add a `includeBody=false` golden to both presenters pinning the
+   `date`-synthesized, body-less shape.
+
+4. **[out-of-scope, test gap] `BodyFormat::Html` body-fetch flag not pinned end-to-end.**
+   `email_get_emits_body_fetch_flag` (jmap/email.rs:714) pins only `all`; no test asserts
+   `format: html` sends `fetchHTMLBodyValues` (and not text) through `GetEmailBody`. The
+   `BodyFormat::body_fetch` mapping itself is untested. **Fix (slice):** add a unit test on
+   `BodyFormat::{Text,Html,Both}::body_fetch()` (cheap, no mock).
+
+5. **[DONE inline this audit] `docs/spec/architecture.md` stale post-relocation.** The file
+   tree omitted `src/present.rs`, the `actions/` line still claimed "+ projection"
+   unqualified, and the narrative said "projection currently still lives in `actions/`".
+   Fixed: added the `present.rs` tree entry, qualified the `actions/` projection note as
+   pre-Email-migration, and updated the narrative to record Email's projection now living in
+   L3 `present.rs` (other five still in `actions/`). Reference tool docs
+   (`get_emails.md`/`search_emails.md`: `Email/query → Email/get`) remain accurate.
+
+Wire-change note (not a finding): the list/search read is now **two separate** round-trips
+(`email_query` then `email_get`) rather than the prior single batched `Email/query` +
+back-referenced `Email/get`. Faithful + intended (each L1 accessor is one call); output
+byte-identical; covered by `mock_query_then_get` (two distinct method mocks). The
+`jmap.md:25-35` back-reference example is a general JMAP illustration, still valid as such.
