@@ -119,6 +119,11 @@ Gate `cargo fmt --check` on its **exit code**, not piped output — a piped
 - **Strangler — green at every step.** One green commit per slice; the app builds
   and the tests pass throughout. The test suite + the byte-identical gate are the
   oracle.
+- **Each commit independently passes the gate.** Don't split a helper from its first
+  caller across commits — a checkpoint that adds an unused fn/const trips
+  `#![deny(warnings)]` dead_code, leaving a non-building commit (breaks `git bisect` +
+  crash recovery). Land a helper in the same commit as its first use. Observed twice
+  (fork A, identity): a subagent committed `present::` helpers one commit before wiring.
 - **Minimal deps.** Don't add a crate where std or an existing dep does — fast
   compiles are a standing constraint.
 

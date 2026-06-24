@@ -476,3 +476,29 @@ identical to the prior raw-`Value` projection — same as the Email finding.
 
 Verify gate green: `cargo test` (185 unit across lib+bin + 27 doctests), `cargo clippy
 --all-targets`, `cargo fmt --check` (exit 0) all pass.
+
+## Loop checkpoint — 2026-06-25 (keep-going run)
+
+Codified the "keep going" working agreement (`5825268`: CLAUDE.md `## Working Agreement` +
+`docs/guides/keep-going.md`) and ran it end-to-end as a thin-orchestrator loop. Landed +
+pushed to `gh/main`:
+- Fork B: L1 `email_set` + move/delete/flag routed onto it (`6eca4aa`, `89f3cdc`).
+- Fork A: read-projection relocated to `src/present.rs` (`889f6a1`..`7ef7b42`).
+- Two-phase audit, both clean: Phase A `8f1d3d8`, Phase B + propagation roadmap `0658b4b`.
+- Resource 1/5: identity migrated (`21a5e86`..`8866957`).
+
+Process finding (caught by orchestrator re-verification): two slices split a `present::`
+helper from its first wiring across commits — the helper-only commit (`aa8e54a`; fork A
+similarly) does NOT compile under `#![deny(warnings)]` (dead_code), violating
+green-at-every-step. HEAD stayed green throughout; only intermediate bisectability was hit.
+Hardened the convention in `keep-going.md` (each commit independently passes the gate);
+already-pushed history not rewritten.
+
+Remaining propagation (roadmap order): **vacation → mailbox → masked_email → contact**. Each
+copies the identity shape (a `present::<RES>_LIST_FIELDS` const + a thin
+`project_<res>_list` wrapper over the generic `present::project_list`); golden-tests-first,
+byte-identical. **contact is HELD for attended review** — highest byte-identical risk
+(JSContact flatten, ~20 dropped fields). After all five migrate: delete the
+`actions::project_fields*` copies (path step 4), then steps 3–4.
+
+Loop paused at this checkpoint — resumes on "keep going".
