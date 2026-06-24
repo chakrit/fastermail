@@ -73,10 +73,49 @@ pub fn project_vacation(value: &serde_json::Value) -> serde_json::Value {
     project_object(value, VACATION_FIELDS)
 }
 
+/// JMAP `Mailbox` properties for a list row. The faithful `Mailbox` carries more
+/// (`sortOrder`/`totalThreads`/`unreadThreads`/`myRights`/`isSubscribed`); the view drops
+/// these.
+pub const MAILBOX_LIST_FIELDS: &[&str] = &[
+    "id",
+    "name",
+    "role",
+    "totalEmails",
+    "unreadEmails",
+    "parentId",
+];
+
+/// Project a faithful `Mailbox/get` list into the CLI/MCP display shape, optionally
+/// filtered by JMAP `role` first. An empty `role` keeps every mailbox. The role filter is
+/// an L3 view concern (the data layer returns the faithful, unfiltered list).
+pub fn project_mailbox_list(value: &serde_json::Value, role: &str) -> serde_json::Value {
+    if role.is_empty() {
+        return project_list(value, MAILBOX_LIST_FIELDS);
+    }
+    let filtered: Vec<serde_json::Value> = value
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter(|m| crate::json::str_at(m, "/role") == Some(role))
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default();
+    project_list(&serde_json::Value::Array(filtered), MAILBOX_LIST_FIELDS)
+}
+
 /// The `{success: true}` MCP-wrapper shape — an L3 concern, emitted by the front-ends
 /// after a typed `*_set` accessor returns, not from the action itself.
 pub fn set_ok() -> serde_json::Value {
     serde_json::json!({ "success": true })
+}
+
+/// The `{success: true, <id_field>: id}` MCP-wrapper shape — an L3 concern, emitted by the
+/// front-ends after a typed `*_set` accessor returns. `id` is the affected object's id (a
+/// created id, or the renamed/deleted id). A `None` id (e.g. a create response missing the
+/// created object) writes JSON null, matching the prior action behaviour.
+pub fn set_with_id(id_field: &str, id: Option<&str>) -> serde_json::Value {
+    serde_json::json!({ "success": true, id_field: id })
 }
 
 /// A field-level change in a vacation update — an L3 input-parsing concern (JMAP has no
@@ -372,6 +411,59 @@ mod tests {
                 "textBody": "Away",
                 "htmlBody": "<p>Away</p>"
             })
+        );
+    }
+
+    #[test]
+    fn project_mailbox_list_drops_extras_and_keeps_all_without_role() {
+        let faithful = json!([
+            {
+                "id": "mb1", "name": "Inbox", "role": "inbox",
+                "totalEmails": 42, "unreadEmails": 3, "parentId": null,
+                "sortOrder": 1, "totalThreads": 40, "unreadThreads": 2,
+                "myRights": {"mayRead": true}, "isSubscribed": true
+            },
+            {
+                "id": "mb2", "name": "Sent", "role": "sent",
+                "totalEmails": 10, "unreadEmails": 0, "parentId": null,
+                "sortOrder": 2, "totalThreads": 9, "unreadThreads": 0,
+                "myRights": {"mayRead": true}, "isSubscribed": true
+            }
+        ]);
+        let projected = project_mailbox_list(&faithful, "");
+        assert_eq!(
+            projected,
+            json!([
+                {"id": "mb1", "name": "Inbox", "role": "inbox", "totalEmails": 42, "unreadEmails": 3, "parentId": null},
+                {"id": "mb2", "name": "Sent", "role": "sent", "totalEmails": 10, "unreadEmails": 0, "parentId": null}
+            ])
+        );
+    }
+
+    #[test]
+    fn project_mailbox_list_filters_by_role() {
+        let faithful = json!([
+            {"id": "mb1", "name": "Inbox", "role": "inbox", "totalEmails": 42, "unreadEmails": 3, "parentId": null, "sortOrder": 1},
+            {"id": "mb2", "name": "Sent", "role": "sent", "totalEmails": 10, "unreadEmails": 0, "parentId": null}
+        ]);
+        assert_eq!(
+            project_mailbox_list(&faithful, "inbox"),
+            json!([{"id": "mb1", "name": "Inbox", "role": "inbox", "totalEmails": 42, "unreadEmails": 3, "parentId": null}])
+        );
+        // A role with no matching mailbox projects to an empty array.
+        assert_eq!(project_mailbox_list(&faithful, "archive"), json!([]));
+    }
+
+    #[test]
+    fn set_with_id_wraps_id() {
+        assert_eq!(
+            set_with_id("mailboxId", Some("mb1")),
+            json!({ "success": true, "mailboxId": "mb1" })
+        );
+        // A missing id writes null, matching the prior create-without-created behaviour.
+        assert_eq!(
+            set_with_id("mailboxId", None),
+            json!({ "success": true, "mailboxId": null })
         );
     }
 

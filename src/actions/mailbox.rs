@@ -1,17 +1,7 @@
-use crate::actions::{Action, Context, project_fields_array};
+use crate::actions::{Action, Context};
 use crate::error::{Error, Result};
-use crate::json;
+use crate::jmap::mailbox::MailboxId;
 use crate::mcp::types::Tool;
-
-const CAPABILITY: &str = "urn:ietf:params:jmap:mail";
-const LIST_FIELDS: &[&str] = &[
-    "id",
-    "name",
-    "role",
-    "totalEmails",
-    "unreadEmails",
-    "parentId",
-];
 
 pub fn tools() -> Vec<Tool> {
     vec![
@@ -59,37 +49,16 @@ pub fn tools() -> Vec<Tool> {
     ]
 }
 
-pub struct ListMailboxes {
-    pub role: String,
-}
+pub struct ListMailboxes;
 
 impl Action for ListMailboxes {
+    /// Return the faithful `Mailbox/get` list — every JMAP property verbatim, no
+    /// projection and no role filter. The CLI/MCP presenters apply
+    /// `present::project_mailbox_list` (which owns the field selection and the role
+    /// filter). An empty account returns `[]`.
     fn run(&self, ctx: &Context) -> Result<serde_json::Value> {
-        let args = serde_json::json!({
-            "accountId": ctx.account_id,
-        });
-
-        let data = ctx.jmap.call_one(CAPABILITY, "Mailbox/get", args)?;
-
-        let list = data.get("list").cloned().unwrap_or(serde_json::json!([]));
-
-        if self.role.is_empty() {
-            return Ok(project_fields_array(&list, LIST_FIELDS));
-        }
-
-        let filtered: Vec<&serde_json::Value> = list
-            .as_array()
-            .map(|arr| {
-                arr.iter()
-                    .filter(|m| json::str_at(m, "/role") == Some(&self.role))
-                    .collect()
-            })
-            .unwrap_or_default();
-
-        Ok(project_fields_array(
-            &serde_json::json!(filtered),
-            LIST_FIELDS,
-        ))
+        let response = ctx.jmap.mailbox_get(&ctx.account_id)?;
+        Ok(serde_json::to_value(response.list)?)
     }
 }
 
@@ -139,47 +108,63 @@ impl ManageMailbox {
     }
 }
 
-impl Action for ManageMailbox {
-    fn run(&self, ctx: &Context) -> Result<serde_json::Value> {
+/// The id JMAP creation key for a new mailbox in a `Mailbox/set` create map.
+const CREATE_KEY: &str = "new-mailbox";
+
+impl ManageMailbox {
+    /// The mailbox id the operation affected, for the L3 `{success, mailboxId}` wrapper.
+    /// For create it is dug from the faithful `created` object (or None if absent); for
+    /// rename/delete it is the input id the caller already holds.
+    pub fn resolved_id(&self, data: &serde_json::Value) -> Option<String> {
         match self {
+            Self::Create { .. } => data
+                .get("created")
+                .and_then(|c| c.get(CREATE_KEY))
+                .and_then(|m| m.get("id"))
+                .and_then(|id| id.as_str())
+                .map(String::from),
+            Self::Rename { mailbox_id, .. } | Self::Delete { mailbox_id } => {
+                Some(mailbox_id.clone())
+            }
+        }
+    }
+}
+
+impl Action for ManageMailbox {
+    /// Route through the L1 `mailbox_set` accessor and return the faithful
+    /// `Mailbox/set` response — no projection, no `{success}` wrapper. The CLI/MCP
+    /// presenters wrap it via `present::set_with_id`/`set_ok`; [`Self::resolved_id`]
+    /// extracts the affected id. Surfaces a JMAP `SetError` as an error.
+    fn run(&self, ctx: &Context) -> Result<serde_json::Value> {
+        let response = match self {
             Self::Create { name, parent_id } => {
                 let mut create_obj = serde_json::json!({ "name": name });
                 if !parent_id.is_empty() {
                     create_obj["parentId"] = serde_json::json!(parent_id);
                 }
-
-                let args = serde_json::json!({
-                    "accountId": ctx.account_id,
-                    "create": { "new-mailbox": create_obj }
-                });
-                let data = ctx.jmap.call_one(CAPABILITY, "Mailbox/set", args)?;
-
-                Ok(serde_json::json!({
-                    "success": true,
-                    "mailboxId": data.get("created")
-                        .and_then(|c| c.get("new-mailbox"))
-                        .and_then(|m| m.get("id"))
-                }))
+                ctx.jmap.mailbox_set(
+                    &ctx.account_id,
+                    Some(serde_json::json!({ CREATE_KEY: create_obj })),
+                    None,
+                    &[],
+                )?
             }
-            Self::Rename { mailbox_id, name } => {
-                let args = serde_json::json!({
-                    "accountId": ctx.account_id,
-                    "update": { mailbox_id.clone(): { "name": name } }
-                });
-                ctx.jmap.call_one(CAPABILITY, "Mailbox/set", args)?;
+            Self::Rename { mailbox_id, name } => ctx.jmap.mailbox_set(
+                &ctx.account_id,
+                None,
+                Some(serde_json::json!({ mailbox_id.clone(): { "name": name } })),
+                &[],
+            )?,
+            Self::Delete { mailbox_id } => ctx.jmap.mailbox_set(
+                &ctx.account_id,
+                None,
+                None,
+                &[MailboxId(mailbox_id.clone())],
+            )?,
+        };
 
-                Ok(serde_json::json!({ "success": true, "mailboxId": mailbox_id }))
-            }
-            Self::Delete { mailbox_id } => {
-                let args = serde_json::json!({
-                    "accountId": ctx.account_id,
-                    "destroy": [mailbox_id]
-                });
-                ctx.jmap.call_one(CAPABILITY, "Mailbox/set", args)?;
-
-                Ok(serde_json::json!({ "success": true, "mailboxId": mailbox_id }))
-            }
-        }
+        response.check_errors("Mailbox/set")?;
+        Ok(serde_json::to_value(response)?)
     }
 }
 
@@ -192,7 +177,7 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn list_mailboxes_returns_all() {
+    fn list_mailboxes_returns_faithful_unprojected_data() {
         let mock = MockJmap::start();
         mock.handle_method(
             "Mailbox/get",
@@ -215,10 +200,7 @@ mod tests {
             recorder: None,
         };
 
-        let action = ListMailboxes {
-            role: String::new(),
-        };
-        let result = action.run(&ctx).expect("list should succeed");
+        let result = ListMailboxes.run(&ctx).expect("list should succeed");
         let arr = result.as_array().expect("result should be array");
 
         assert_eq!(arr.len(), 2);
@@ -228,82 +210,10 @@ mod tests {
         assert_eq!(arr[1]["id"], "mb2");
         assert_eq!(arr[1]["name"], "Sent");
 
-        assert_eq!(arr[0]["totalEmails"], 42);
-        assert_eq!(arr[0]["unreadEmails"], 3);
-        assert!(arr[0]["parentId"].is_null());
-        assert_eq!(arr[1]["totalEmails"], 10);
-        assert_eq!(arr[1]["unreadEmails"], 0);
-        assert!(
-            arr[0].get("sortOrder").is_none(),
-            "non-LIST_FIELDS should be stripped"
-        );
-    }
-
-    #[test]
-    fn list_mailboxes_filters_by_role() {
-        let mock = MockJmap::start();
-        mock.handle_method(
-            "Mailbox/get",
-            json!({
-                "methodResponses": [["Mailbox/get", {
-                    "accountId": TEST_ACCOUNT_ID,
-                    "list": [
-                        {"id": "mb1", "name": "Inbox", "role": "inbox", "totalEmails": 42, "unreadEmails": 3, "parentId": null},
-                        {"id": "mb2", "name": "Sent", "role": "sent", "totalEmails": 10, "unreadEmails": 0, "parentId": null}
-                    ]
-                }, "call-0"]]
-            }),
-        );
-
-        let (client, _) =
-            JmapClient::connect_to(&mock.session_url(), "fake-token").expect("session");
-        let ctx = Context {
-            jmap: client,
-            account_id: TEST_ACCOUNT_ID.to_string(),
-            recorder: None,
-        };
-
-        let action = ListMailboxes {
-            role: "inbox".to_string(),
-        };
-        let result = action.run(&ctx).expect("list should succeed");
-        let arr = result.as_array().expect("result should be array");
-
-        assert_eq!(arr.len(), 1);
-        assert_eq!(arr[0]["name"], "Inbox");
-        assert_eq!(arr[0]["role"], "inbox");
-    }
-
-    #[test]
-    fn list_mailboxes_returns_empty_when_role_not_found() {
-        let mock = MockJmap::start();
-        mock.handle_method(
-            "Mailbox/get",
-            json!({
-                "methodResponses": [["Mailbox/get", {
-                    "accountId": TEST_ACCOUNT_ID,
-                    "list": [
-                        {"id": "mb1", "name": "Inbox", "role": "inbox", "totalEmails": 42, "unreadEmails": 3, "parentId": null}
-                    ]
-                }, "call-0"]]
-            }),
-        );
-
-        let (client, _) =
-            JmapClient::connect_to(&mock.session_url(), "fake-token").expect("session");
-        let ctx = Context {
-            jmap: client,
-            account_id: TEST_ACCOUNT_ID.to_string(),
-            recorder: None,
-        };
-
-        let action = ListMailboxes {
-            role: "archive".to_string(),
-        };
-        let result = action.run(&ctx).expect("list should succeed");
-        let arr = result.as_array().expect("result should be array");
-
-        assert!(arr.is_empty());
+        // The action no longer projects or filters: every field survives, including the
+        // one the presenter later drops (`sortOrder`). The role filter + field selection
+        // now live in `present::project_mailbox_list` (tested there + in the goldens).
+        assert_eq!(arr[0]["sortOrder"], 1, "faithful data keeps sortOrder");
     }
 
     fn parse(action: &str, name: &str, mailbox_id: &str, parent_id: &str) -> Result<ManageMailbox> {
@@ -377,8 +287,10 @@ mod tests {
         };
         let result = action.run(&ctx).expect("create should succeed");
 
-        assert_eq!(result["success"], true);
-        assert_eq!(result["mailboxId"], "mbox-new");
+        // The action returns faithful `Mailbox/set` data (no `{success}` wrapper); the
+        // affected id comes from `resolved_id`. The front-ends do the L3 wrapping.
+        assert_eq!(result["created"]["new-mailbox"]["id"], "mbox-new");
+        assert_eq!(action.resolved_id(&result).as_deref(), Some("mbox-new"));
     }
 
     #[test]
@@ -406,8 +318,8 @@ mod tests {
         };
         let result = action.run(&ctx).expect("delete should succeed");
 
-        assert_eq!(result["success"], true);
-        assert_eq!(result["mailboxId"], "mb-del");
+        assert_eq!(result["destroyed"][0], "mb-del");
+        assert_eq!(action.resolved_id(&result).as_deref(), Some("mb-del"));
     }
 
     #[test]
@@ -436,8 +348,8 @@ mod tests {
         };
         let result = action.run(&ctx).expect("rename should succeed");
 
-        assert_eq!(result["success"], true);
-        assert_eq!(result["mailboxId"], "mb1");
+        assert!(result["updated"].get("mb1").is_some());
+        assert_eq!(action.resolved_id(&result).as_deref(), Some("mb1"));
     }
 
     #[test]
@@ -466,7 +378,7 @@ mod tests {
         };
         let result = action.run(&ctx).expect("create with parent should succeed");
 
-        assert_eq!(result["success"], true);
-        assert_eq!(result["mailboxId"], "mbox-child");
+        assert_eq!(result["created"]["new-mailbox"]["id"], "mbox-child");
+        assert_eq!(action.resolved_id(&result).as_deref(), Some("mbox-child"));
     }
 }

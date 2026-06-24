@@ -97,10 +97,11 @@ fn dispatch_tool(
 ) -> Result<serde_json::Value, Error> {
     match name {
         "list_mailboxes" => {
-            let action = mailbox::ListMailboxes {
-                role: str_param(args, "role"),
-            };
-            action.run(ctx)
+            let value = mailbox::ListMailboxes.run(ctx)?;
+            Ok(present::project_mailbox_list(
+                &value,
+                &str_param(args, "role"),
+            ))
         }
         "manage_mailbox" => {
             let action = mailbox::ManageMailbox::parse(
@@ -109,7 +110,11 @@ fn dispatch_tool(
                 str_param(args, "mailboxId"),
                 str_param(args, "parentId"),
             )?;
-            action.run(ctx)
+            let value = action.run(ctx)?;
+            Ok(present::set_with_id(
+                "mailboxId",
+                action.resolved_id(&value).as_deref(),
+            ))
         }
         "get_emails" => {
             let action = email::GetEmails {

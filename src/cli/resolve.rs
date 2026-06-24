@@ -1,5 +1,4 @@
-use crate::actions::mailbox::ListMailboxes;
-use crate::actions::{Action, Context};
+use crate::actions::Context;
 use crate::cli::io::{Io, OutputMode};
 use crate::error::{Error, Result};
 use crate::json;
@@ -32,17 +31,18 @@ pub fn resolve_mailbox(input: &str, ctx: &Context, io: &Io) -> Result<String> {
         return Err(Error::InvalidParams("mailbox is required".to_string()));
     }
 
-    // Fetch all mailboxes once
+    // Fetch all mailboxes once via the faithful L1 accessor. Resolution reads `id`,
+    // `role`, and `name` — all present in the faithful `Mailbox`, so no projection is
+    // needed here. (Dedup against `actions::find_mailbox_id_by_*` is deferred to step 3.)
     let spinner = io.progress("Resolving mailbox…");
-    let action = ListMailboxes {
-        role: String::new(),
-    };
-    let value = action.run(ctx);
+    let response = ctx.jmap.mailbox_get(&ctx.account_id);
     Io::finish_progress(spinner);
-    let value = value?;
-    let mailboxes = value
-        .as_array()
-        .ok_or_else(|| Error::InvalidParams("failed to fetch mailbox list".to_string()))?;
+    let mailboxes: Vec<serde_json::Value> = response?
+        .list
+        .into_iter()
+        .map(serde_json::to_value)
+        .collect::<std::result::Result<_, _>>()?;
+    let mailboxes = mailboxes.as_slice();
 
     // Step 0: Exact JMAP id match. The stable, unambiguous handle (the `--mailbox` help
     // advertises "ID"); wins over role/name so duplicate-named mailboxes stay reachable.

@@ -5,6 +5,7 @@ use crate::actions::mailbox::{ListMailboxes, ManageMailbox};
 use crate::actions::{Action, Context};
 use crate::cli::io::{Io, OutputMode};
 use crate::error::Result;
+use crate::present;
 
 #[derive(Subcommand)]
 pub enum MailboxCommand {
@@ -45,12 +46,10 @@ pub fn run(cmd: MailboxCommand, ctx: &Context, io: &Io) -> Result<()> {
     match cmd {
         MailboxCommand::List { role } => {
             let spinner = io.progress("Fetching mailboxes…");
-            let action = ListMailboxes {
-                role: role.unwrap_or_default(),
-            };
+            let action = ListMailboxes;
             let result = action.run(ctx);
             Io::finish_progress(spinner);
-            let value = result?;
+            let value = present::project_mailbox_list(&result?, &role.unwrap_or_default());
             format_mailbox_list(io, &value);
         }
         MailboxCommand::Create { name, parent_id } => {
@@ -62,15 +61,15 @@ pub fn run(cmd: MailboxCommand, ctx: &Context, io: &Io) -> Result<()> {
             let result = action.run(ctx);
             Io::finish_progress(spinner);
             let value = result?;
+            let id = action.resolved_id(&value);
 
             if io.mode() == OutputMode::Human {
-                let id = value
-                    .get("mailboxId")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("?");
-                io.done(&format!("Created mailbox \"{name}\" (ID: {id})"));
+                io.done(&format!(
+                    "Created mailbox \"{name}\" (ID: {})",
+                    id.as_deref().unwrap_or("?")
+                ));
             } else {
-                io.json(&value);
+                io.json(&present::set_with_id("mailboxId", id.as_deref()));
             }
         }
         MailboxCommand::Rename {
@@ -88,7 +87,7 @@ pub fn run(cmd: MailboxCommand, ctx: &Context, io: &Io) -> Result<()> {
             if io.mode() == OutputMode::Human {
                 io.done(&format!("Renamed to \"{new_name}\""));
             } else {
-                io.json(&serde_json::json!({ "success": true }));
+                io.json(&present::set_ok());
             }
         }
         MailboxCommand::Delete { mailbox_id } => {
@@ -102,7 +101,7 @@ pub fn run(cmd: MailboxCommand, ctx: &Context, io: &Io) -> Result<()> {
             if io.mode() == OutputMode::Human {
                 io.done(&format!("Deleted mailbox {mailbox_id}"));
             } else {
-                io.json(&serde_json::json!({ "success": true }));
+                io.json(&present::set_ok());
             }
         }
     }
