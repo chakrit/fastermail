@@ -44,6 +44,34 @@ Direction: heading to `lib` + `bin` (the lib holds the API; bin/MCP are thin
 callers). Full rulings + the layered (transport / base / sugar) design:
 `docs/decisions/2026-06-21-jmap-library-and-backup-primitives.md`.
 
+## Working Agreement — "keep going"
+
+Standing autonomous loop (chakrit, 2026-06-25). Full procedure:
+[`docs/guides/keep-going.md`](docs/guides/keep-going.md). In effect when triggered by
+**"keep going"** / "keep it going" / "carry on" (a bare "go" / "continue" is an ordinary
+nudge). While the loop is active it overrides the per-edit propose-then-wait gate in
+Communication Style — drive forward, resolve forks by the Design philosophy.
+
+- **Autonomy.** Pick the next slice, plan, implement — no propose-then-wait. Resolve forks
+  by philosophy (faithful JMAP mirror + L0/L1/sugar/L3 layering); ask only when philosophy
+  is silent AND the choice is expensive to reverse. Don't pause at milestones.
+- **Commit + push freely (attended).** Commit and push on the current branch (`main`
+  included) without asking — this repo overrides the global push-waits default. Releases
+  are attended via `scripts/release.sh` (no CI). In AFK mode, commit but do NOT push.
+- **Thin-orchestrator loop.** One subagent per slice (plan → TDD → verify → commit/push →
+  update breadcrumb); cheap done-check between; two-phase audit every 2–3 slices (A
+  code-quality, B architecture). No `/ace-save` or `/clear` between slices.
+- **Verify gate:** `cargo test && cargo clippy --all-targets && cargo fmt --check` (gate
+  fmt on exit code, not piped output). **Byte-identical CLI/MCP output is a hard gate** —
+  add presenter golden tests before relocating projection.
+- **Durable record is the restore point.** A slice isn't done until its `docs/` note/spec
+  entry is written; trust the record over conversation across `/clear` and machines.
+- **Two hard bindings autonomy never overrides:** no working-tree-overwriting git; no env
+  mutation outside the project tree.
+- **AFK envelope** (`/ace-afk`, "keep going while I'm gone"): commit-don't-push, no
+  outward / irreversible acts, log blockers to `.afk.log`, stop-and-summarize when out of
+  unblocked work.
+
 ## Durable artifacts
 
 `docs/` — usage docs (`guides/`, `reference/`; sorted by type) and a design record
