@@ -209,6 +209,11 @@ Requires a clean tree (commit first). Cut from current `main` HEAD.
   and release claims the orchestrator re-runs DIRECTLY (re-run the verify gate,
   re-check `@{u}`) before they enter the durable record. A high-stakes subagent
   claim is a hypothesis, not a fact.
+- **Mid-run editor diagnostics are stale — verify at HEAD.** While a slice subagent
+  runs, the LSP/rustc diagnostics snapshot its in-flight edits (a helper added a
+  commit before its wiring, etc.) and surface `dead_code`/`E0603`/`E0277` that are
+  NOT true of the committed HEAD. Seen 5× in one run; HEAD built clean every time.
+  The authoritative check is `cargo` at HEAD, never the editor diagnostic.
 - **"User-gated" is a high bar.** Re-examine an audit's "needs-the-user" verdict
   by philosophy before deferring — most resolve autonomously. Surface a fork only
   when philosophy is genuinely silent AND the choice is expensive to reverse.

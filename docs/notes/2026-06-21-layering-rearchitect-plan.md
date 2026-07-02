@@ -1,15 +1,14 @@
 # Layering rearchitect — audit + plan (2026-06-21)
 
-**Status: STEP 1 DONE; STEP 2 Email DONE (both forks landed 2026-06-25, committed not
-pushed — see the "fork A LANDED" section at the bottom); STEP 2 Identity DONE (migrated
-2026-06-25, committed not pushed — see "Step 2 / Identity — MIGRATED" at the bottom); STEP 2
-Vacation DONE (migrated 2026-06-25, committed not pushed — see "Step 2 / Vacation —
-MIGRATED" at the bottom); STEP 2 Mailbox DONE (migrated 2026-06-25, committed not pushed —
-see "Step 2 / Mailbox — MIGRATED" at the bottom); STEP 2 MaskedEmail DONE (migrated
-2026-06-25, committed not pushed — see "Step 2 / MaskedEmail — MIGRATED" at the bottom);
-the typed `check_errors` triplication is CONSOLIDATED (`a3fb55b` — see below); next + LAST:
-contact (HELD for attended review). AUDITED 2026-06-25 (identity/vacation/mailbox batch —
-clean; see "Audit — identity/vacation/mailbox batch" at the bottom).** The
+**Status: STEP 1 DONE. STEP 2 — 5 of 6 resources migrated to faithful L1 + L3 `present.rs`:
+Email (both forks), Identity, Vacation, Mailbox, MaskedEmail; typed `check_errors`
+consolidated (`a3fb55b`). ALL PUSHED to `gh/main` through `254fed6` (verified `HEAD==@{u}`).
+Two audit passes clean (Email batch; identity/vacation/mailbox batch — sections below). NEXT
++ LAST: contact — HELD for attended review (highest byte-identical risk: JSContact flatten,
+~20 dropped fields; the `From<WireCard>` lossy path). Resume with "keep going" (you're then
+attended). After contact: path step 4 (delete `project_fields*`, retire the `Action` trait)
++ step 3 (`resolve_mailbox` → lib sugar, resolve the lib/bin dep-inversion). Per-resource
+detail in the dated sections at the bottom.** The
 three locks were adopted under chakrit's AFK delegation and **confirmed by chakrit** ("all
 good", 2026-06-22). Shipped + **pushed to `gh/main`**: step 1 (lib/bin split, `f049938`);
 `email_state` bootstrap primitive (`af96f9d`); faithful L1 `email_get` + typed `Email`
